@@ -855,6 +855,7 @@ PT.app = (function () {
           api.close();
           u.toast('Good luck', 'success');
           refreshTimerBar();
+          render();
         });
       }
     });
@@ -920,7 +921,7 @@ PT.app = (function () {
           clearInterval(tick);
           sheet.close();
           const ok = await confirmSheet('Discard session?', 'The running clock will be thrown away and nothing is logged.', 'Discard', true);
-          if (ok) { PT.store.stopTimer(); refreshTimerBar(); u.toast('Timer discarded'); }
+          if (ok) { PT.store.stopTimer(); refreshTimerBar(); render(); u.toast('Timer discarded'); }
         });
       }
     });
@@ -935,6 +936,7 @@ PT.app = (function () {
     const minutes = Math.max(1, Math.round((end - start) / 60000));
     PT.store.stopTimer();
     refreshTimerBar();
+    render();
 
     sessionFormSheet(null, {
       date: u.isoDate(start),
@@ -952,13 +954,18 @@ PT.app = (function () {
 
   function refreshTimerBar() {
     const bar = u.$('#timer-bar');
+    const button = u.$('#btn-timer');
     const timer = PT.store.state.timer;
     if (!timer) {
       bar.classList.add('hidden');
+      button.classList.remove('is-running');
+      button.title = 'Start a session';
       if (timerHandle) { clearInterval(timerHandle); timerHandle = null; }
       return;
     }
     bar.classList.remove('hidden');
+    button.classList.add('is-running');
+    button.title = 'Session running';
     u.$('#timer-bar-meta').textContent = [timer.room, timer.stakes].filter(Boolean).join(' · ');
     const paint = () => { u.$('#timer-bar-clock').textContent = u.clock(PT.store.timerSeconds()); };
     paint();
@@ -1125,6 +1132,7 @@ PT.app = (function () {
     u.$$('.tab').forEach((tab) => tab.addEventListener('click', () => { u.haptic(); go(tab.dataset.view); }));
     u.$('#fab').addEventListener('click', () => { u.haptic(); sessionFormSheet(null); });
     u.$('#btn-refresh').addEventListener('click', () => sync());
+    u.$('#btn-timer').addEventListener('click', () => { u.haptic(); ACTIONS['start-timer'](); });
     u.$('#timer-bar').addEventListener('click', (e) => {
       if (e.target.closest('#timer-bar-stop')) { finishTimer(); return; }
       runningTimerSheet();

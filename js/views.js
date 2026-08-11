@@ -72,6 +72,7 @@ PT.views = (function () {
     const recent = all.slice(0, 5);
 
     return `
+    ${startRow()}
     ${segmented('range-seg', PT.stats.RANGES, range)}
 
     <div class="card" style="margin-top:14px">
@@ -104,6 +105,20 @@ PT.views = (function () {
       <button class="section-action" data-action="go-sessions">See all</button>
     </div>
     <div class="rows">${recent.map(sessionRow).join('')}</div>`;
+  }
+
+  /** Always reachable, not just from the empty state. Hidden only while a
+      session is already running, because the timer bar takes over up top. */
+  function startRow() {
+    if (PT.store.state.timer) return '';
+    return `<button class="start-row" data-action="start-timer">
+      <span class="start-row-icon">${u().icon('play', 17)}</span>
+      <span class="start-row-body">
+        <span class="start-row-title">Start a session</span>
+        <span class="start-row-sub">Run the clock while you play</span>
+      </span>
+      <span class="row-chevron">${u().icon('chevron', 16)}</span>
+    </button>`;
   }
 
   function ringsCard(progress) {
@@ -466,7 +481,7 @@ PT.views = (function () {
   return {
     ROOMS, GAMES, TABLES, TAGS, BANKROLL_TYPES,
     segmented, tile, sessionRow, emptyState,
-    home, mountHome,
+    home, mountHome, startRow,
     sessions, mountSessions, sessionFilter,
     stats,
     settings, mountSettings
