@@ -541,6 +541,14 @@ body.has-sheet .fab { opacity: 0; transform: scale(.8); pointer-events: none; }
 
 .share-preview { width: 100%; border-radius: var(--radius-sm); display: block; box-shadow: var(--shadow); }
 
+/* pairing QR — always on white, cameras need the contrast */
+.pair-slot { display: flex; flex-direction: column; align-items: center; padding: 10px 0 4px; }
+.pair-qr {
+  width: min(280px, 72vw); height: auto; display: block;
+  border-radius: 14px; padding: 12px; background: #fff;
+  box-shadow: var(--shadow);
+}
+
 .tag-pill { display: inline-block; padding: 2px 9px; border-radius: 999px; background: var(--fill); font-size: 11.5px; font-weight: 550; color: var(--label-2); margin: 0 4px 4px 0; }
 
 .danger-text { color: var(--red); }

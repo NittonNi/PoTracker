@@ -520,6 +520,87 @@ PT.app = (function () {
     });
   }
 
+  /* ══════════════════ pairing another device ══════════════════
+     The credentials travel from screen to camera and nowhere else: the payload
+     rides in the URL fragment, which browsers never send to the server. */
+  function pairingUrl() {
+    const { token, baseId } = PT.store.settings.airtable;
+    const payload = btoa(`${token}|${baseId}`)
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    return `${location.origin}${location.pathname}#pt=${payload}`;
+  }
+
+  function consumePairingHash() {
+    const match = location.hash.match(/^#pt=([A-Za-z0-9\-_]+)$/);
+    if (!match) return null;
+    // Drop it from the address bar (and from history) before anything else.
+    history.replaceState(null, '', location.pathname + location.search);
+    try {
+      const padded = match[1].replace(/-/g, '+').replace(/_/g, '/');
+      const [token, baseId] = atob(padded).split('|');
+      if (token && baseId) return { token, baseId };
+    } catch (_) { /* malformed code */ }
+    return null;
+  }
+
+  function pairSheet() {
+    if (!PT.store.isConfigured()) { u.toast('Connect this device first', 'error'); return; }
+    let countdown = null;
+
+    openSheet({
+      title: 'Add another device',
+      body: `
+        <p class="muted" style="line-height:1.5;margin-bottom:16px">
+          Point your phone's camera at the code and open the link. It signs that device in
+          without typing anything, and works on the phone's normal camera app.
+        </p>
+        <div id="pair-slot" class="pair-slot">
+          <button class="btn btn-primary" id="pair-reveal">Show the code</button>
+          <p class="muted small center" style="margin-top:12px;max-width:280px">
+            The code contains your Airtable token. Only show it when nobody else can see
+            the screen or photograph it.
+          </p>
+        </div>`,
+      footer: `<button class="btn btn-block" id="pair-copy">Copy the link instead</button>`,
+      onMount: (api) => {
+        const slot = api.root.querySelector('#pair-slot');
+
+        api.root.querySelector('#pair-reveal').addEventListener('click', () => {
+          let left = 90;
+          const paint = () => {
+            slot.innerHTML = `${PT.qr.svg(pairingUrl(), { scale: 6 })}
+              <p class="muted small center" style="margin-top:12px">Hides itself in ${left}s</p>`;
+            const svg = slot.querySelector('svg');
+            svg.removeAttribute('width');
+            svg.removeAttribute('height');
+            svg.classList.add('pair-qr');
+          };
+          paint();
+          countdown = setInterval(() => {
+            left -= 1;
+            if (left <= 0) {
+              clearInterval(countdown);
+              slot.innerHTML = '<p class="muted center small">Code hidden. Reopen this screen to show it again.</p>';
+              return;
+            }
+            const note = slot.querySelector('p');
+            if (note) note.textContent = `Hides itself in ${left}s`;
+          }, 1000);
+        });
+
+        api.foot.querySelector('#pair-copy').addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(pairingUrl());
+            u.toast('Link copied — treat it like a password', 'success');
+          } catch (_) {
+            u.toast('Clipboard is blocked here', 'error');
+          }
+        });
+      },
+      onClose: () => { if (countdown) clearInterval(countdown); }
+    });
+  }
+
   /* ══════════════════ bankroll ══════════════════ */
   function bankrollSheet(existing) {
     const symbol = PT.store.settings.currency;
@@ -960,6 +1041,7 @@ PT.app = (function () {
     'new-bankroll': () => bankrollSheet(null),
     'view-bankroll':() => bankrollHistorySheet(),
     'sync':         () => sync(),
+    'pair':         () => pairSheet(),
     'reconnect':    () => showOnboarding(true),
     'export-csv':   () => exportCsv(),
     'export-json':  () => exportJson(),
@@ -1035,6 +1117,18 @@ PT.app = (function () {
     PT.store.applyTheme();
     bindGlobalEvents();
 
+    // Arriving from a pairing QR: verify the credentials before trusting them.
+    const paired = consumePairingHash();
+    if (paired) {
+      try {
+        await PT.api.test(paired.token, paired.baseId);
+        PT.store.saveSettings({ airtable: paired });
+        u.toast('Device paired', 'success');
+      } catch (err) {
+        u.toast('That code did not work — generate a fresh one', 'error');
+      }
+    }
+
     if (!PT.store.isConfigured()) {
       showOnboarding(false);
       return;
@@ -1061,7 +1155,7 @@ PT.app = (function () {
 
   return {
     init, render, go, sync,
-    openSheet, confirmSheet,
+    openSheet, confirmSheet, pairSheet, pairingUrl,
     sessionFormSheet, sessionDetailSheet, shareSheet,
     bankrollSheet, goalSheet, startTimerSheet, runningTimerSheet,
     exportCsv, exportJson, updateSyncDot, refreshTimerBar

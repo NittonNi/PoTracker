@@ -346,7 +346,8 @@ PT.views = (function () {
         <button class="btn" data-action="sync">Sync now</button>
         <a class="btn" href="https://airtable.com/${u().esc(st.airtable.baseId)}" target="_blank" rel="noopener">Open in Airtable</a>
       </div>
-      <button class="btn btn-ghost btn-block" data-action="reconnect" style="margin-top:8px">Change credentials</button>
+      <button class="btn btn-block" data-action="pair" style="margin-top:8px">Add another device</button>
+      <button class="btn btn-ghost btn-block" data-action="reconnect" style="margin-top:2px">Change credentials</button>
     </div>
 
     <div class="section-head"><span class="section-title">Appearance</span></div>

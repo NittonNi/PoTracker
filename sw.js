@@ -13,6 +13,7 @@ const SHELL = [
   'js/stats.js',
   'js/charts.js',
   'js/share.js',
+  'js/qr.js',
   'js/views.js',
   'js/app.js',
   'manifest.webmanifest',
