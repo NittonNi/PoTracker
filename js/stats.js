@@ -233,40 +233,90 @@ PT.stats = (function () {
     };
   }
 
-  /* ── bankroll ── */
+  /* ── rooms & bankroll ─────────────────────────────────────────────────
+     Money model, kept deliberately explicit because it is easy to get wrong:
+
+       balance = deposited − withdrawn + bonuses + played + adjustments
+
+     A buy-in is NOT money leaving the room — it just moves your own money
+     from the room's cashier onto a table and back again. Only deposits,
+     withdrawals and results change what a room actually holds. Buy-ins and
+     rebuys are therefore tracked for ROI and risk, never for the balance. */
+  function roomLedger(sessions, entries) {
+    const map = new Map();
+    const touch = (room) => {
+      if (!map.has(room)) {
+        map.set(room, {
+          key: room, deposited: 0, withdrawn: 0, bonuses: 0,
+          played: 0, adjustments: 0, sessions: 0, minutes: 0, wagered: 0, rebuys: 0
+        });
+      }
+      return map.get(room);
+    };
+
+    for (const s of sessions) {
+      const r = touch(s.room);
+      r.played  += s.net;
+      r.wagered += s.invested;
+      r.rebuys  += s.rebuys;
+      r.minutes += s.minutes;
+      r.sessions += 1;
+    }
+
+    for (const e of (entries || [])) {
+      const r = touch(e.room);
+      if (e.type === 'Deposit')          r.deposited += Math.abs(e.amount);
+      else if (e.type === 'Withdrawal')  r.withdrawn += Math.abs(e.amount);
+      else if (e.type === 'Bonus' || e.type === 'Rakeback') r.bonuses += Math.abs(e.amount);
+      else if (e.type === 'Result')      r.played += e.amount;      // signed: unlogged play
+      else                               r.adjustments += e.amount; // signed
+    }
+
+    return Array.from(map.values()).map((r) => Object.assign(r, {
+      balance: r.deposited - r.withdrawn + r.bonuses + r.played + r.adjustments,
+      // What the room has actually made you, ignoring your own money.
+      profit: r.played + r.bonuses,
+      atRisk: r.deposited - r.withdrawn,
+      hours: r.minutes / 60
+    })).sort((a, b) => b.balance - a.balance);
+  }
+
+  /** The same numbers rolled up across every room. */
   function bankrollSummary(sessions, entries) {
-    const deposits    = PT.util.sum((entries || []).filter((e) => e.type === 'Deposit'), (e) => e.amount);
-    const withdrawals = PT.util.sum((entries || []).filter((e) => e.type === 'Withdrawal'), (e) => Math.abs(e.amount));
-    const extras      = PT.util.sum((entries || []).filter((e) => ['Bonus', 'Rakeback', 'Adjustment'].includes(e.type)), (e) => e.amount);
-    const netProfit   = PT.util.sum(sessions, (s) => s.net);
+    const rooms = roomLedger(sessions, entries);
+    const total = (fn) => PT.util.sum(rooms, fn);
+    const bonuses = total((r) => r.bonuses);
+    const adjustments = total((r) => r.adjustments);
     return {
-      deposits, withdrawals, extras, netProfit,
-      // What should be sitting in the accounts right now.
-      current: deposits - withdrawals + extras + netProfit,
-      lifetime: netProfit + extras
+      rooms,
+      deposits:    total((r) => r.deposited),
+      withdrawals: total((r) => r.withdrawn),
+      bonuses, adjustments,
+      played:      total((r) => r.played),
+      current:     total((r) => r.balance),
+      profit:      total((r) => r.profit),
+      // Kept under their original names so the Bankroll card stays as it was.
+      extras:      bonuses + adjustments,
+      netProfit:   total((r) => r.played),
+      lifetime:    total((r) => r.profit)
     };
   }
 
-  /** Per-room split of money currently on the table. */
+  /** Balance per room, for the existing "balance by room" chart. */
   function bankrollByRoom(sessions, entries) {
-    const map = new Map();
-    const touch = (room) => {
-      if (!map.has(room)) map.set(room, { key: room, net: 0 });
-      return map.get(room);
-    };
-    for (const s of sessions) touch(s.room).net += s.net;
-    for (const e of (entries || [])) {
-      if (e.type === 'Deposit') touch(e.room).net += e.amount;
-      else if (e.type === 'Withdrawal') touch(e.room).net -= Math.abs(e.amount);
-      else touch(e.room).net += e.amount;
-    }
-    return Array.from(map.values()).sort((a, b) => b.net - a.net);
+    return roomLedger(sessions, entries).map((r) => ({ key: r.key, net: r.balance }));
+  }
+
+  /** Balance a room should hold right now, used to reconcile against reality. */
+  function expectedBalance(room, sessions, entries) {
+    const found = roomLedger(sessions, entries).find((r) => r.key === room);
+    return found ? found.balance : 0;
   }
 
   return {
     RANGES, rangeStart, inRange, rangeLabel,
     summary, cumulative, maxDrawdown, streaks,
     groupBy, byRoom, byGame, byStakes, byWeekday, byStartHour, bySessionLength, byMonth,
-    monthProgress, bankrollSummary, bankrollByRoom
+    monthProgress, roomLedger, bankrollSummary, bankrollByRoom, expectedBalance
   };
 })();

@@ -175,6 +175,7 @@ PT.app = (function () {
           <button type="button" class="chip ${r === form.room ? 'is-active' : ''}" data-value="${u.esc(r)}">
             <span class="chip-dot" style="background:${u.roomColor(r)}"></span>${u.esc(r)}
           </button>`).join('')}</div>
+        <div class="field-note" id="f-room-balance"></div>
       </div>
 
       <div class="field">
@@ -198,7 +199,7 @@ PT.app = (function () {
       </div>
 
       <div class="field">
-        <span class="field-label">Buy-in</span>
+        <span class="field-label">Buy-in <span class="muted" style="font-weight:400">— what you take to the table, not a deposit</span></span>
         <div class="input-money" data-symbol="${u.esc(symbol)}">
           <input id="f-buyin" type="number" inputmode="decimal" step="0.01" value="${form.buyIn || ''}">
         </div>
@@ -273,6 +274,33 @@ PT.app = (function () {
         <div><div class="lr-label">Net</div><div class="lr-value ${u.tone(net)}">${u.signed(net)}</div></div>
         <div><div class="lr-label">Per hour</div><div class="lr-value ${u.tone(perHour)}">${hours > 0 ? u.signed(perHour, { decimals: 0 }) : '—'}</div></div>
         <div><div class="lr-label">ROI</div><div class="lr-value ${u.tone(roi)}">${invested > 0 ? u.pct(roi) : '—'}</div></div>`;
+      paintRoomBalance();
+    }
+
+    /* A buy-in doesn't leave the room, it just moves onto a table — but you
+       still can't put more on the table than the room holds. Warn, never block:
+       the balance is only as right as what you've logged. */
+    function paintRoomBalance() {
+      const node = q('#f-room-balance');
+      const ledger = PT.stats.roomLedger(PT.store.sortedSessions(), PT.store.state.bankroll);
+      const room = ledger.find((r) => r.key === form.room);
+      const tracked = Boolean(room && (room.deposited || room.withdrawn || room.sessions));
+
+      if (!tracked) {
+        node.className = 'field-note';
+        node.innerHTML = `Nothing tracked in ${u.esc(form.room)} yet — log a deposit in Stats → Bankroll.`;
+        return;
+      }
+
+      // When editing, this session's own result already sits inside the balance.
+      const editing = existing && existing.id && existing.room === form.room;
+      const balance = room.balance - (editing ? existing.net : 0);
+      const stake = (Number(form.buyIn) || 0) + (Number(form.rebuyTotal) || 0);
+      const over = stake > balance + 0.005;
+
+      node.className = `field-note${over ? ' is-warning' : ''}`;
+      node.innerHTML = `Balance in ${u.esc(form.room)}: <b>${u.money(balance)}</b>`
+        + (over ? ` · this puts ${u.money(stake)} in play, more than the room holds` : '');
     }
 
     function syncDuration() {
@@ -322,16 +350,17 @@ PT.app = (function () {
     q('#f-rebuy-minus').addEventListener('click', () => setRebuys(form.rebuys - 1));
     q('#f-rebuy-plus').addEventListener('click', () => setRebuys(form.rebuys + 1));
 
-    const singleChoice = (sel, key) => {
+    const singleChoice = (sel, key, after) => {
       q(sel).addEventListener('click', (e) => {
         const chip = e.target.closest('[data-value]');
         if (!chip) return;
         form[key] = chip.dataset.value;
         q(sel).querySelectorAll('.chip').forEach((c) => c.classList.toggle('is-active', c === chip));
         u.haptic();
+        if (after) after();
       });
     };
-    singleChoice('#f-room', 'room');
+    singleChoice('#f-room', 'room', paintRoomBalance);
     singleChoice('#f-game', 'game');
 
     q('#f-tags').addEventListener('click', (e) => {
@@ -770,6 +799,7 @@ PT.app = (function () {
             <button type="button" class="chip ${r === draft.room ? 'is-active' : ''}" data-value="${u.esc(r)}">
               <span class="chip-dot" style="background:${u.roomColor(r)}"></span>${u.esc(r)}
             </button>`).join('')}</div>
+          <div class="field-note" id="t-room-balance"></div>
         </div>
         <div class="field">
           <span class="field-label">Game</span>
@@ -791,17 +821,34 @@ PT.app = (function () {
         <p class="muted small">The clock keeps running if you close the app. Rebuys can be added while you play.</p>`,
       footer: `<button class="btn btn-primary btn-block btn-lg" id="t-start">${u.icon('play', 17)} Start playing</button>`,
       onMount: (api) => {
-        const pick = (sel, key) => api.root.querySelector(sel).addEventListener('click', (e) => {
+        const paintBalance = () => {
+          const node = api.root.querySelector('#t-room-balance');
+          const room = PT.stats.roomLedger(PT.store.sortedSessions(), PT.store.state.bankroll)
+            .find((r) => r.key === draft.room);
+          if (!room || !(room.deposited || room.withdrawn || room.sessions)) {
+            node.className = 'field-note';
+            node.innerHTML = `Nothing tracked in ${u.esc(draft.room)} yet — log a deposit in Stats → Bankroll.`;
+            return;
+          }
+          const over = (Number(draft.buyIn) || 0) > room.balance + 0.005;
+          node.className = `field-note${over ? ' is-warning' : ''}`;
+          node.innerHTML = `Balance in ${u.esc(draft.room)}: <b>${u.money(room.balance)}</b>`
+            + (over ? ` · that buy-in is more than the room holds` : '');
+        };
+
+        const pick = (sel, key, after) => api.root.querySelector(sel).addEventListener('click', (e) => {
           const chip = e.target.closest('[data-value]');
           if (!chip) return;
           draft[key] = chip.dataset.value;
           api.root.querySelector(sel).querySelectorAll('.chip').forEach((c) => c.classList.toggle('is-active', c === chip));
           u.haptic();
+          if (after) after();
         });
-        pick('#t-room', 'room');
+        pick('#t-room', 'room', paintBalance);
         pick('#t-game', 'game');
         api.root.querySelector('#t-stakes').addEventListener('input', (e) => { draft.stakes = e.target.value; });
-        api.root.querySelector('#t-buyin').addEventListener('input', (e) => { draft.buyIn = Number(e.target.value) || 0; });
+        api.root.querySelector('#t-buyin').addEventListener('input', (e) => { draft.buyIn = Number(e.target.value) || 0; paintBalance(); });
+        paintBalance();
 
         api.foot.querySelector('#t-start').addEventListener('click', () => {
           PT.store.startTimer(draft);
