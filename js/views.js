@@ -247,9 +247,10 @@ PT.views = (function () {
     const streak = PT.stats.streaks(scoped);
     const bankroll = PT.stats.bankrollSummary(all, PT.store.state.bankroll);
 
-    const streakLabel = streak.current > 0
-      ? `${streak.current} win${streak.current === 1 ? '' : 's'} in a row`
-      : streak.current < 0 ? `${-streak.current} loss${streak.current === -1 ? '' : 'es'} in a row` : 'even';
+    const streakLabel = streak.current > 0 ? `${streak.current}W`
+      : streak.current < 0 ? `${-streak.current}L` : '—';
+    const streakNote = streak.current > 0 ? 'wins in a row'
+      : streak.current < 0 ? 'losses in a row' : 'no streak';
 
     return `
     ${segmented('range-seg', PT.stats.RANGES, range)}
@@ -260,7 +261,7 @@ PT.views = (function () {
       ${tile('Biggest win', s.best ? u().signed(s.best.net) : '—', s.best ? u().dateLabel(s.best.date) : 'none yet', 'pos')}
       ${tile('Biggest loss', s.worst ? u().signed(s.worst.net) : '—', s.worst ? u().dateLabel(s.worst.date) : 'none yet', 'neg')}
       ${tile('Max drawdown', u().money(drawdown), 'worst peak-to-trough', drawdown < 0 ? 'neg' : '')}
-      ${tile('Current streak', streakLabel, `best run: ${streak.bestWin}W / ${streak.bestLoss}L`, streak.current > 0 ? 'pos' : streak.current < 0 ? 'neg' : '')}
+      ${tile('Current streak', streakLabel, `${streakNote} · best ${streak.bestWin}W / ${streak.bestLoss}L`, streak.current > 0 ? 'pos' : streak.current < 0 ? 'neg' : '')}
     </div>
 
     <div class="card" style="margin-top:14px">
