@@ -105,6 +105,13 @@ Open the page, paste the token and the base ID (the `app…` part of the base UR
   token there is nothing to read.
 - "Disconnect this device" in Settings wipes the token and the local cache.
 
+> **One caveat when hosting on `*.github.io`:** every GitHub Pages project under the same
+> account shares one browser origin, and therefore shares `localStorage`. Any script running on
+> any of your other Pages sites could read the stored token. That is fine while you control all
+> of them, but it is the reason the token should be restricted to the PoTracker base and to
+> `data.records:read` / `data.records:write` only — then the worst case is limited to poker
+> data. A custom domain, or hosting it somewhere else, removes the shared origin entirely.
+
 ## Running locally
 
 Any static file server will do:
