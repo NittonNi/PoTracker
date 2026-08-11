@@ -1,0 +1,15 @@
+# Nothing in this repo should ever contain credentials or session data:
+# the Airtable token lives in the browser's localStorage, and the records
+# live in Airtable. Keep it that way.
+*.env
+.env*
+secrets.json
+potracker-backup-*.json
+potracker-sessions-*.csv
+
+node_modules/
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/

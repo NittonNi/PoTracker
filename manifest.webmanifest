@@ -1,0 +1,33 @@
+{
+  "name": "PoTracker",
+  "short_name": "PoTracker",
+  "description": "Track poker sessions: winnings, rebuys, time played and hourly rate.",
+  "start_url": "./",
+  "scope": "./",
+  "id": "potracker",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f2f2f7",
+  "theme_color": "#f2f2f7",
+  "categories": ["finance", "productivity", "games"],
+  "icons": [
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "assets/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Log a session",
+      "short_name": "Log",
+      "url": "./?action=new-session",
+      "icons": [{ "src": "assets/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Start the timer",
+      "short_name": "Timer",
+      "url": "./?action=start-timer",
+      "icons": [{ "src": "assets/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}
