@@ -18,6 +18,7 @@ PT.store = (function () {
     currency: '€',
     theme: 'system',
     range: '30d',
+    entryMode: 'closing',
     autoRebuyTotal: true,
     confirmDelete: true,
     defaults: { room: 'Winamax', game: 'Cash NLHE', stakes: '', table: '6-max', buyIn: 20 }
@@ -112,6 +113,10 @@ PT.store = (function () {
       stakes:  f['Stakes'] || '',
       table:   f['Table'] || '',
       buyIn, rebuyTotal, cashOut, invested, net, hours,
+      // Only set when the session was logged by closing balance rather than
+      // by cash-out. Kept for the audit trail; Cash Out stays the source of truth.
+      closing: f['Closing Balance'] === undefined || f['Closing Balance'] === null
+        ? null : Number(f['Closing Balance']),
       rebuys:  Number(f['Rebuys']) || 0,
       rating:  Number(f['Rating']) || 0,
       tags:    f['Tags'] || [],
@@ -168,6 +173,9 @@ PT.store = (function () {
       'Notes':       s.notes || ''
     };
     if (s.table) fields['Table'] = s.table;
+    if (s.closing !== null && s.closing !== undefined && s.closing !== '') {
+      fields['Closing Balance'] = round2(s.closing);
+    }
     return fields;
   }
 

@@ -136,10 +136,18 @@ PT.app = (function () {
       date: u.isoDate(),
       start: '', end: '', minutes: 0,
       room: d.room, game: d.game, stakes: d.stakes, table: d.table,
-      buyIn: d.buyIn, rebuys: 0, rebuyTotal: 0, cashOut: 0,
+      buyIn: d.buyIn, rebuys: 0, rebuyTotal: 0, cashOut: 0, closing: null,
       rating: 0, tags: [], notes: ''
     }, existing || {}, seed || {});
     form.tags = (form.tags || []).slice();
+
+    // Live games have no cashier, so there is no balance to read off a screen.
+    const LIVE = ['Casino (live)', 'Home game'];
+    if (!form.mode) {
+      form.mode = (existing && existing.closing !== null && existing.closing !== undefined) ? 'closing'
+        : LIVE.includes(form.room) ? 'cashout'
+        : (PT.store.settings.entryMode || 'closing');
+    }
 
     const symbol = PT.store.settings.currency;
     const quick = [5, 10, 20, 50, 100, 200];
@@ -225,8 +233,24 @@ PT.app = (function () {
         </label>
       </div>
 
-      <label class="field">
-        <span class="field-label">Cashed out</span>
+      <div class="field">
+        <span class="field-label">How did it end?</span>
+        ${PT.views.segmented('f-mode', [
+          { id: 'closing', label: 'Room balance' },
+          { id: 'cashout', label: 'Cashed out' }
+        ], form.mode)}
+      </div>
+
+      <label class="field" id="f-closing-field">
+        <span class="field-label">Balance when you finished <span class="muted" style="font-weight:400">— what the cashier shows</span></span>
+        <div class="input-money" data-symbol="${u.esc(symbol)}">
+          <input id="f-closing" type="number" inputmode="decimal" step="0.01" value="${form.closing === null || form.closing === undefined ? '' : form.closing}">
+        </div>
+        <div class="field-note" id="f-closing-note"></div>
+      </label>
+
+      <label class="field" id="f-cashout-field">
+        <span class="field-label">Cashed out <span class="muted" style="font-weight:400">— what you took off the table</span></span>
         <div class="input-money" data-symbol="${u.esc(symbol)}">
           <input id="f-cashout" type="number" inputmode="decimal" step="0.01" value="${form.cashOut || ''}">
         </div>
@@ -264,9 +288,40 @@ PT.app = (function () {
   function wireSessionForm(api, form, existing) {
     const q = (sel) => api.root.querySelector(sel);
 
-    function recompute() {
+    /* In balance mode the net is derived, never typed: you enter the one
+       number the cashier already shows you and the difference does the rest. */
+    function derive() {
       const invested = (Number(form.buyIn) || 0) + (Number(form.rebuyTotal) || 0);
-      const net = (Number(form.cashOut) || 0) - invested;
+      if (form.mode !== 'closing') {
+        return { invested, net: (Number(form.cashOut) || 0) - invested, ref: null };
+      }
+      const ref = PT.stats.netFromClosing(
+        form, PT.store.sortedSessions(), PT.store.state.bankroll,
+        existing && existing.id ? existing.id : null
+      );
+      return { invested, net: ref.net, ref };
+    }
+
+    function paintClosingNote() {
+      const node = q('#f-closing-note');
+      if (form.mode !== 'closing') return;
+      const { ref } = derive();
+
+      if (!ref.hasReference) {
+        node.className = 'field-note is-warning';
+        node.innerHTML = `Nothing recorded in ${u.esc(form.room)} before this session, so there is no `
+          + `balance to subtract from and the whole amount would count as profit. `
+          + `Log your starting balance as a deposit first (Stats → Bankroll).`;
+        return;
+      }
+      node.className = 'field-note';
+      node.innerHTML = `Balance before this session: <b>${u.money(ref.balance)}</b> · `
+        + `net is worked out from the difference`
+        + (form.rebuys ? `. Rebuys don’t affect it — that money never left ${u.esc(form.room)}.` : '');
+    }
+
+    function recompute() {
+      const { invested, net } = derive();
       const hours = (Number(form.minutes) || 0) / 60;
       const perHour = hours > 0 ? net / hours : 0;
       const roi = invested > 0 ? (net / invested) * 100 : 0;
@@ -275,6 +330,16 @@ PT.app = (function () {
         <div><div class="lr-label">Per hour</div><div class="lr-value ${u.tone(perHour)}">${hours > 0 ? u.signed(perHour, { decimals: 0 }) : '—'}</div></div>
         <div><div class="lr-label">ROI</div><div class="lr-value ${u.tone(roi)}">${invested > 0 ? u.pct(roi) : '—'}</div></div>`;
       paintRoomBalance();
+      paintClosingNote();
+    }
+
+    function applyMode() {
+      const closing = form.mode === 'closing';
+      q('#f-closing-field').classList.toggle('hidden', !closing);
+      q('#f-cashout-field').classList.toggle('hidden', closing);
+      api.root.querySelectorAll('#f-mode [data-value]').forEach((b) =>
+        b.classList.toggle('is-active', b.dataset.value === form.mode));
+      recompute();
     }
 
     /* A buy-in doesn't leave the room, it just moves onto a table — but you
@@ -329,6 +394,18 @@ PT.app = (function () {
     q('#f-buyin').addEventListener('input', (e) => { form.buyIn = Number(e.target.value) || 0; autoRebuyTotal(); recompute(); });
     q('#f-rebuytotal').addEventListener('input', (e) => { form.rebuyTotal = Number(e.target.value) || 0; recompute(); });
     q('#f-cashout').addEventListener('input', (e) => { form.cashOut = Number(e.target.value) || 0; recompute(); });
+    q('#f-closing').addEventListener('input', (e) => {
+      form.closing = e.target.value === '' ? null : Number(e.target.value);
+      recompute();
+    });
+    q('#f-mode').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-value]');
+      if (!btn) return;
+      form.mode = btn.dataset.value;
+      PT.store.saveSettings({ entryMode: form.mode });
+      u.haptic();
+      applyMode();
+    });
 
     api.root.querySelectorAll('[data-quick-buyin]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -360,7 +437,7 @@ PT.app = (function () {
         if (after) after();
       });
     };
-    singleChoice('#f-room', 'room', paintRoomBalance);
+    singleChoice('#f-room', 'room', recompute); // a different room means a different balance
     singleChoice('#f-game', 'game');
 
     q('#f-tags').addEventListener('click', (e) => {
@@ -393,6 +470,28 @@ PT.app = (function () {
     const saveBtn = api.foot.querySelector('#f-save');
     saveBtn.addEventListener('click', async () => {
       if (!form.date) { u.toast('Pick a date first', 'error'); return; }
+
+      const { invested, net, ref } = derive();
+      if (form.mode === 'closing') {
+        if (form.closing === null || form.closing === undefined) {
+          u.toast('Enter the balance you finished with', 'error');
+          return;
+        }
+        if (!ref.hasReference) {
+          const ok = await confirmSheet('No earlier balance to compare against',
+            `Nothing is recorded in ${form.room} before this session, so the whole `
+            + `${u.money(form.closing)} would be counted as profit. Log your starting balance `
+            + `as a deposit first, or save anyway if that really is all profit.`,
+            'Save anyway', true);
+          if (!ok) return;
+        }
+        // Store a consistent cash-out so every existing stat and the Airtable
+        // formulas keep working untouched.
+        form.cashOut = PT.store.round2(invested + net);
+      } else {
+        form.closing = null;
+      }
+
       saveBtn.disabled = true;
       saveBtn.textContent = 'Saving…';
       try {
@@ -407,7 +506,7 @@ PT.app = (function () {
       updateSyncDot();
     });
 
-    recompute();
+    applyMode();
   }
 
   async function deleteSessionFlow(session) {

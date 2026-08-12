@@ -313,10 +313,68 @@ PT.stats = (function () {
     return found ? found.balance : 0;
   }
 
+  /* ── logging a session by its closing balance ─────────────────────────
+     Instead of adding up what you won, you type the one number already on
+     screen: what the room holds when you stand up. The result is then
+
+       net = closing balance − whatever the room held before this session
+
+     Rebuys need no correction: taking another 20 € onto the table moves your
+     own money inside the room, so the room's balance never changed. Topping
+     the room up with NEW money does change it, which is why that has to be
+     logged as a deposit — it then lands in the "before" figure below. */
+  const orderKey = (s) => `${s.date || ''} ${s.start || '00:00'}`;
+
+  /**
+   * What `room` held immediately before `session`.
+   * @param {object} session the session being logged or edited (may have no id yet)
+   * @param {string} [excludeId] session id to leave out, when editing
+   */
+  function balanceBefore(session, sessions, entries, excludeId) {
+    const room = session.room;
+    const cutoff = orderKey(session);
+
+    const earlier = (sessions || []).filter((s) =>
+      s.room === room && s.id !== excludeId && orderKey(s) < cutoff);
+
+    // Cash movements are only dated, so treat them as happening before any
+    // session played that same day — which is the order you actually do it in.
+    const movements = (entries || []).filter((e) =>
+      e.room === room && e.date && e.date <= (session.date || ''));
+
+    let balance = 0;
+    for (const s of earlier) balance += s.net;
+    for (const e of movements) {
+      if (e.type === 'Deposit')         balance += Math.abs(e.amount);
+      else if (e.type === 'Withdrawal') balance -= Math.abs(e.amount);
+      else if (e.type === 'Bonus' || e.type === 'Rakeback') balance += Math.abs(e.amount);
+      else if (e.type === 'Result')     balance += e.amount;
+      else                              balance += e.amount;
+    }
+
+    return {
+      balance,
+      // With no deposits and no earlier sessions there is nothing to subtract
+      // from, so the whole closing balance would look like profit.
+      hasReference: earlier.length > 0 || movements.length > 0,
+      priorSessions: earlier.length,
+      movements: movements.length
+    };
+  }
+
+  /** Net implied by a closing balance. */
+  function netFromClosing(session, sessions, entries, excludeId) {
+    const before = balanceBefore(session, sessions, entries, excludeId);
+    return Object.assign({}, before, {
+      net: (Number(session.closing) || 0) - before.balance
+    });
+  }
+
   return {
     RANGES, rangeStart, inRange, rangeLabel,
     summary, cumulative, maxDrawdown, streaks,
     groupBy, byRoom, byGame, byStakes, byWeekday, byStartHour, bySessionLength, byMonth,
-    monthProgress, roomLedger, bankrollSummary, bankrollByRoom, expectedBalance
+    monthProgress, roomLedger, bankrollSummary, bankrollByRoom, expectedBalance,
+    balanceBefore, netFromClosing
   };
 })();
