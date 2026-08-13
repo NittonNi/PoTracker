@@ -85,7 +85,14 @@ PT.charts = (function () {
 
   /* ── vertical columns above/below a zero line ── */
   function columns(items, opts) {
-    const o = Object.assign({ height: 150, value: (d) => d.net, label: (d) => d.key }, opts || {});
+    const o = Object.assign({
+      height: 150,
+      value: (d) => d.net,
+      label: (d) => d.key,
+      format: (v) => PT.util.signed(v, { decimals: 0 }),
+      // Time is never a win or a loss: colouring it green would read as good.
+      neutral: false
+    }, opts || {});
     if (!items || !items.length) return '<div class="chart-empty">Nothing to show yet</div>';
 
     const values = items.map(o.value);
@@ -100,14 +107,15 @@ PT.charts = (function () {
         const v = o.value(d);
         const pct = (Math.abs(v) / span) * 100;
         const up = v >= 0;
+        const text = o.format(v, d);
         return `<div class="col-item">
           <div class="col-track">
-            <div class="col-bar ${up ? 'is-up' : 'is-down'}"
+            <div class="col-bar ${o.neutral ? 'is-flat' : up ? 'is-up' : 'is-down'}"
                  style="height:${pct.toFixed(2)}%;${up ? `bottom:${(100 - zeroPct).toFixed(2)}%` : `top:${zeroPct.toFixed(2)}%`}"
-                 title="${PT.util.esc(o.label(d))}: ${PT.util.signed(v)}"></div>
+                 title="${PT.util.esc(o.label(d))}: ${PT.util.esc(text)}"></div>
           </div>
           <div class="col-label">${PT.util.esc(o.label(d))}</div>
-          <div class="col-value ${PT.util.tone(v)}">${PT.util.signed(v, { decimals: 0 })}</div>
+          <div class="col-value ${o.neutral ? '' : PT.util.tone(v)}">${PT.util.esc(text)}</div>
         </div>`;
       }).join('')}
     </div>`;

@@ -11,11 +11,19 @@ PT.views = (function () {
   const BANKROLL_TYPES = ['Deposit', 'Withdrawal', 'Bonus', 'Rakeback', 'Transfer', 'Adjustment'];
 
   /* ── shared fragments ── */
-  function segmented(id, options, active) {
-    return `<div class="segmented" id="${id}">${options.map((o) =>
+  function segmented(id, options, active, compact) {
+    return `<div class="segmented${compact ? ' is-compact' : ''}" id="${id}">${options.map((o) =>
       `<button data-value="${u().esc(o.id)}" class="${o.id === active ? 'is-active' : ''}">${u().esc(o.label)}</button>`
     ).join('')}</div>`;
   }
+
+  /* The same seven bars answer three different questions, so they share one
+     card with a switch instead of taking three. */
+  const WEEKDAY_METRICS = [
+    { id: 'net',     label: '€',     value: (d) => d.net,     format: (v) => u().signed(v, { decimals: 0 }) },
+    { id: 'hours',   label: 'Hours', value: (d) => d.hours,   format: (v) => u().num(v, 1) + 'h', neutral: true },
+    { id: 'perHour', label: '€/h',   value: (d) => d.perHour, format: (v) => u().signed(v, { decimals: 0 }) }
+  ];
 
   function tile(label, value, note, toneClass) {
     return `<div class="tile">
@@ -262,6 +270,13 @@ PT.views = (function () {
     const streak = PT.stats.streaks(scoped);
     const bankroll = PT.stats.bankrollSummary(all, PT.store.state.bankroll);
 
+    const weekday = WEEKDAY_METRICS.find((m) => m.id === PT.store.settings.weekdayMetric) || WEEKDAY_METRICS[0];
+    const weekdayNote = {
+      net:     'Where the money came from — long days show up here as tall bars.',
+      hours:   'Where the time went. Read it next to €/h before blaming a day.',
+      perHour: 'What an hour is worth on each day, whatever the total.'
+    }[weekday.id];
+
     const streakLabel = streak.current > 0 ? `${streak.current}W`
       : streak.current < 0 ? `${-streak.current}L` : '—';
     const streakNote = streak.current > 0 ? 'wins in a row'
@@ -301,8 +316,14 @@ PT.views = (function () {
     </div>` : ''}
 
     <div class="card">
-      <div class="card-head"><span class="card-title">By day of week</span></div>
-      ${PT.charts.columns(PT.stats.byWeekday(scoped))}
+      <div class="card-head">
+        <span class="card-title">By day of week</span>
+        ${segmented('weekday-seg', WEEKDAY_METRICS, weekday.id, true)}
+      </div>
+      ${PT.charts.columns(PT.stats.byWeekday(scoped), {
+        value: weekday.value, format: weekday.format, neutral: Boolean(weekday.neutral)
+      })}
+      <div class="card-note" style="margin-top:10px">${u().esc(weekdayNote)}</div>
     </div>
 
     ${PT.stats.byStartHour(scoped).length ? `<div class="card">

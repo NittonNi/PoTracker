@@ -1244,13 +1244,17 @@ PT.app = (function () {
       runningTimerSheet();
     });
 
-    // Range segmented control is re-created on every render, so delegate.
+    // Segmented controls are re-created on every render, so delegate.
+    const SEGMENTS = { '#range-seg': 'range', '#weekday-seg': 'weekdayMetric' };
     document.addEventListener('click', (e) => {
-      const btn = e.target.closest('#range-seg [data-value]');
-      if (!btn) return;
-      PT.store.saveSettings({ range: btn.dataset.value });
-      u.haptic();
-      render();
+      for (const [selector, setting] of Object.entries(SEGMENTS)) {
+        const btn = e.target.closest(`${selector} [data-value]`);
+        if (!btn) continue;
+        PT.store.saveSettings({ [setting]: btn.dataset.value });
+        u.haptic();
+        render();
+        return;
+      }
     });
 
     document.addEventListener('keydown', (e) => {

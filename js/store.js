@@ -18,6 +18,7 @@ PT.store = (function () {
     currency: '€',
     theme: 'system',
     range: '30d',
+    weekdayMetric: 'net',
     entryMode: 'closing',
     autoRebuyTotal: true,
     confirmDelete: true,

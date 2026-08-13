@@ -264,6 +264,9 @@ body.has-sheet .fab { opacity: 0; transform: scale(.8); pointer-events: none; }
   background: var(--bg-elev);
   box-shadow: 0 1px 3px rgba(0,0,0,.12), 0 0 0 .5px rgba(0,0,0,.03);
 }
+/* Small enough to sit inside a card header next to the title. */
+.segmented.is-compact { margin: 0; max-width: none; flex: 0 0 auto; align-self: center; }
+.segmented.is-compact button { padding: 4px 10px; font-size: 12px; }
 
 /* ─────────── stat tiles ─────────── */
 .tile { background: var(--bg-elev); border-radius: var(--radius-sm); padding: 14px 15px; box-shadow: var(--shadow); }
@@ -462,6 +465,7 @@ body.has-sheet .fab { opacity: 0; transform: scale(.8); pointer-events: none; }
 }
 .col-bar.is-up { background: var(--green); }
 .col-bar.is-down { background: var(--red); }
+.col-bar.is-flat { background: var(--blue); }
 @keyframes colGrow { from { height: 0 !important; } }
 .col-label { font-size: 11px; color: var(--label-2); margin-top: 7px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .col-value { font-family: var(--num); font-size: 11px; font-weight: 620; font-variant-numeric: tabular-nums; margin-top: 1px; white-space: nowrap; overflow: hidden; }
