@@ -75,6 +75,94 @@ PT.stats = (function () {
     });
   }
 
+  /* ── the curve you actually look at ──────────────────────────────────
+     One point per session makes a month of grinding unreadable: three
+     sessions on Saturday sit on top of each other while the empty week
+     after them is a flat line, and the eye reads a saw blade instead of a
+     trend. So the line is bucketed by time — days over a week or a month,
+     weeks over a quarter, months over a year — and each point carries what
+     that whole period made. A period with no poker in it is not a gap: it
+     is a flat stretch, which is the truth. */
+
+  const DAY = 86400000;
+  const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const startOfWeek = (d) => {
+    const day = startOfDay(d);
+    day.setDate(day.getDate() - ((day.getDay() + 6) % 7)); // Monday
+    return day;
+  };
+  const startOfMonth = (d) => new Date(d.getFullYear(), d.getMonth(), 1);
+
+  /** How wide a bucket has to be to keep the line readable. */
+  function bucketUnit(from, to) {
+    const days = (to - from) / DAY;
+    if (days <= 45) return 'day';
+    if (days <= 200) return 'week';
+    return 'month';
+  }
+
+  const UNITS = {
+    day:   { start: startOfDay,   next: (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1) },
+    week:  { start: startOfWeek,  next: (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7) },
+    month: { start: startOfMonth, next: (d) => new Date(d.getFullYear(), d.getMonth() + 1, 1) }
+  };
+
+  function bucketLabel(unit, from, to) {
+    if (unit === 'day') return PT.util.dateLabel(PT.util.isoDate(from));
+    if (unit === 'month') {
+      const sameYear = from.getFullYear() === new Date().getFullYear();
+      return `${PT.util.MONTHS[from.getMonth()]}${sameYear ? '' : ' ' + from.getFullYear()}`;
+    }
+    const last = new Date(to.getTime() - DAY);
+    const sameMonth = last.getMonth() === from.getMonth();
+    return `${from.getDate()}${sameMonth ? '' : ' ' + PT.util.MONTHS_SHORT[from.getMonth()]}–${last.getDate()} ${PT.util.MONTHS_SHORT[last.getMonth()]}`;
+  }
+
+  /**
+   * Cumulative profit sampled over time rather than per session.
+   * @returns {{unit: string, from: Date, to: Date, points: Array}}
+   */
+  function series(sessions, range) {
+    const ordered = sessions.slice().sort(PT.util.chrono);
+    const today = startOfDay(new Date());
+    const firstPlayed = ordered.length ? PT.util.parseDate(ordered[0].date) : today;
+    const windowStart = rangeStart(range) || firstPlayed;
+    const from = new Date(Math.min(windowStart.getTime(), firstPlayed.getTime()));
+
+    const unit = bucketUnit(from.getTime(), today.getTime() + DAY);
+    const { start, next } = UNITS[unit];
+
+    const points = [];
+    for (let edge = start(from); edge <= today; edge = next(edge)) {
+      const to = next(edge);
+      points.push({
+        t: edge.getTime(), from: edge, to,
+        label: bucketLabel(unit, edge, to),
+        net: 0, count: 0, value: 0
+      });
+    }
+    if (!points.length) return { unit, from, to: today, points: [] };
+
+    for (const s of ordered) {
+      const date = PT.util.parseDate(s.date);
+      if (!date) continue;
+      // Anything before the window (it cannot be after) belongs to the first bucket.
+      let index = 0;
+      for (let i = points.length - 1; i >= 0; i -= 1) {
+        if (date.getTime() >= points[i].t) { index = i; break; }
+      }
+      points[index].net += s.net;
+      points[index].count += 1;
+    }
+
+    let running = 0;
+    for (const point of points) {
+      running += point.net;
+      point.value = running;
+    }
+    return { unit, from, to: today, points };
+  }
+
   /** Worst peak-to-trough dip on the cumulative curve. */
   function maxDrawdown(curve) {
     let peak = 0;
@@ -442,7 +530,7 @@ PT.stats = (function () {
 
   return {
     RANGES, rangeStart, inRange, rangeLabel,
-    summary, cumulative, maxDrawdown, streaks,
+    summary, cumulative, series, maxDrawdown, streaks,
     groupBy, byRoom, byGame, byStakes, byWeekday, byStartHour, bySessionLength, byMonth,
     monthProgress, roomLedger, bankrollSummary, bankrollByRoom, expectedBalance,
     balanceBefore, netFromClosing

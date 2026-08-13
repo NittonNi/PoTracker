@@ -182,6 +182,33 @@ group('every write carries a key so a retry cannot duplicate it', () => {
   check('keys are not reused', PT.util.clientId() === PT.util.clientId(), false);
 });
 
+group('the overview curve is bucketed by time, not by session', () => {
+  const today = new Date();
+  const iso = (daysAgo) => {
+    const d = new Date(today.getTime() - daysAgo * 86400000);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+  // Three sessions today and one a week back: today must be a single point.
+  const played = [
+    session({ id: 'w1', created: 100, date: iso(6), cashOut: 20 }),   // +10
+    session({ id: 'w2', created: 200, date: iso(0), cashOut: 15 }),   // +5
+    session({ id: 'w3', created: 300, date: iso(0), cashOut: 0 }),    // -10
+    session({ id: 'w4', created: 400, date: iso(0), cashOut: 30 })    // +20
+  ];
+  const week = PT.stats.series(played, '7d');
+  check('one point per day', week.unit, 'day');
+  check('seven days', week.points.length, 7);
+  check('today holds all three sessions', week.points[6].count, 3);
+  check('and their combined result', week.points[6].net, 15);
+  check('the running total ends on the sum', week.points[6].value, 25);
+  check('a day off is flat, not missing', week.points[3].count, 0);
+  check('and carries the total forward', week.points[3].value, 10);
+
+  // A long range collapses further so the line stays readable.
+  const old = [session({ id: 'w5', created: 100, date: '2026-01-15', cashOut: 20 })];
+  check('a year is drawn by month', PT.stats.series(old, 'ytd').unit, 'month');
+});
+
 group('totals add up', () => {
   const all = [won15, session({ id: 's6', created: 300, date: '2026-03-02', cashOut: 0, closing: 55 })];
   const summary = PT.stats.summary(all);

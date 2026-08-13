@@ -125,6 +125,14 @@ python -m http.server 8123
 Service workers and the share sheet need `http://localhost` or HTTPS — opening `index.html`
 straight off the filesystem will mostly work but not entirely.
 
+## Deploying
+
+Push to `main` and GitHub Pages serves it. Bump `PT.BUILD` in `js/app.js` and `VERSION` in
+`sw.js` together — the first is what Settings shows you, the second is what retires the old
+offline cache. The service worker fetches with `cache: 'reload'`, so a deploy is not held back
+by the `max-age=600` Pages puts on every file, and the page reloads itself when the new worker
+takes over.
+
 ## Tests
 
 ```bash

@@ -1,6 +1,10 @@
 /* PoTracker — application controller: routing, sheets, the running timer and sync. */
 window.PT = window.PT || {};
 
+/* Shown in Settings so "which build am I on?" is answerable without guessing.
+   Bump it and the matching VERSION in sw.js when deploying. */
+PT.BUILD = '2026-08-13.2';
+
 PT.app = (function () {
   const u = PT.util;
   const VIEWS = {
@@ -609,7 +613,8 @@ PT.app = (function () {
         title,
         subtitle: `${summary.count} sessions · ${u.num(summary.hours, 1)} hours`,
         summary,
-        curve: PT.stats.cumulative(scoped)
+        // The same shape as the chart on screen, so the card matches the app.
+        curve: PT.stats.series(scoped, range).points
       });
       message = PT.share.summaryText(title, summary);
     }
@@ -1337,6 +1342,19 @@ PT.app = (function () {
     await sync({ silent: true });
 
     if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+      /* When a deploy lands, the new worker takes over straight away — but the
+         page you are looking at is still running the old code until it
+         reloads. Doing it here beats telling anyone to force-quit the app. */
+      let controlled = Boolean(navigator.serviceWorker.controller);
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        // The very first worker claiming this page is not an update: the code
+        // running here was downloaded a moment ago. Any change after that is.
+        if (!controlled) { controlled = true; return; }
+        // Never yank the page out from under someone mid-sentence — the next
+        // time they open the app it comes up on the new code anyway.
+        if (u.$('#sheet-root').children.length) return;
+        location.reload();
+      });
       navigator.serviceWorker.register('sw.js').catch(() => { /* offline support is optional */ });
     }
   }

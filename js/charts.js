@@ -15,15 +15,6 @@ PT.charts = (function () {
      starts flat at zero on the first day of the range, steps on the days
      you actually played, and runs flat to today. */
 
-  /** When a session sits on the clock. Same-day sessions need separating. */
-  function sessionTime(point) {
-    const date = PT.util.parseDate(point.date);
-    if (!date) return null;
-    const [h, m] = String((point.session && point.session.start) || '12:00').split(':').map(Number);
-    date.setHours(Number.isNaN(h) ? 12 : h, Number.isNaN(m) ? 0 : m, 0, 0);
-    return date.getTime();
-  }
-
   /** Three or four dates along the bottom, worded for how long the range is. */
   function axisTicks(from, to, count) {
     const days = (to - from) / 86400000;
@@ -42,24 +33,24 @@ PT.charts = (function () {
     return ticks;
   }
 
-  function area(curve, opts) {
-    const o = Object.assign({ width: 680, height: 190, pad: 14, axisHeight: 20, from: null }, opts || {});
-    if (!curve || curve.length === 0) {
+  /**
+   * @param {Array} points buckets from PT.stats.series — one per day, week or
+   *   month, each carrying the running total at the end of it.
+   */
+  function area(points, opts) {
+    const o = Object.assign({ width: 680, height: 190, pad: 14, axisHeight: 20 }, opts || {});
+    if (!points || points.length === 0) {
       return '<div class="chart-empty">No sessions in this range</div>';
     }
 
     const W = o.width, H = o.height, P = o.pad;
     const plotBottom = H - o.axisHeight;
 
-    /* Time domain: the whole selected range when we know it, so an empty
-       fortnight reads as an empty fortnight instead of vanishing. */
-    const times = curve.map(sessionTime).map((t, i) => (t === null ? i : t));
-    const startOfRange = o.from ? o.from.getTime() : times[0];
-    const from = Math.min(startOfRange, times[0]);
-    const to = Math.max(Date.now(), times[times.length - 1]);
-    const timeSpan = Math.max(to - from, 3600000);
+    const from = points[0].t;
+    const to = Math.max(points[points.length - 1].t, from + 3600000);
+    const timeSpan = to - from;
 
-    const values = curve.map((p) => p.value);
+    const values = points.map((p) => p.value);
     let min = Math.min(0, ...values);
     let max = Math.max(0, ...values);
     if (min === max) { min -= 1; max += 1; }
@@ -68,23 +59,10 @@ PT.charts = (function () {
     const x = (t) => P + ((t - from) / timeSpan) * (W - P * 2);
     const y = (v) => P + (1 - (v - min) / valueSpan) * (plotBottom - P * 2);
 
-    /* Sessions played hours apart land on the same pixel, and one of them
-       disappears under the other. Nudge them along so every session keeps a
-       dot you can aim at — a couple of pixels of licence, in the order they
-       were played, rather than a session you cannot see or select. */
-    const xs = [];
-    curve.forEach((p, i) => {
-      const wanted = x(times[i]);
-      xs.push(i === 0 ? wanted : Math.max(wanted, xs[i - 1] + 5));
-    });
-    const overflow = Math.max(0, xs[xs.length - 1] - (W - P));
-    if (overflow > 0) for (let i = 0; i < xs.length; i += 1) xs[i] -= overflow * (i / (xs.length - 1 || 1));
-
-    // Flat at zero until the first session, flat again from the last to now.
+    const xs = points.map((p) => x(p.t));
     const last = values[values.length - 1];
-    const nodes = [{ x: x(from), v: 0 }]
-      .concat(curve.map((p, i) => ({ x: xs[i], v: p.value })))
-      .concat([{ x: Math.max(x(to), xs[xs.length - 1]), v: last }]);
+    // Opens flat at zero: on the first day shown, nothing had happened yet.
+    const nodes = [{ x: xs[0], v: 0 }].concat(points.map((p, i) => ({ x: xs[i], v: p.value })));
     const colorVar = last >= 0 ? 'var(--green)' : 'var(--red)';
     const gid = `ptGrad${++gradientSeq}`;
 
@@ -92,10 +70,10 @@ PT.charts = (function () {
     const fill = `${line} L${nodes[nodes.length - 1].x.toFixed(1)},${plotBottom.toFixed(1)} L${nodes[0].x.toFixed(1)},${plotBottom.toFixed(1)} Z`;
     const zeroY = y(0);
 
-    // Each session gets a dot while there are few enough to aim at.
-    const dots = curve.length <= 24 ? curve.map((p, i) =>
+    // Dots only while they are far enough apart to be worth aiming at.
+    const dots = points.length <= 16 ? points.map((p, i) =>
       `<circle cx="${xs[i].toFixed(1)}" cy="${y(p.value).toFixed(1)}" r="2.6"
-               style="fill:${colorVar}" opacity=".55"/>`).join('') : '';
+               style="fill:${colorVar}" opacity="${p.count ? '.6' : '.25'}"/>`).join('') : '';
 
     const ticks = axisTicks(from, to, W < 380 ? 3 : 4).map((tick, i, all) => {
       const anchor = i === 0 ? 'start' : i === all.length - 1 ? 'end' : 'middle';
@@ -105,7 +83,7 @@ PT.charts = (function () {
 
     const lastX = xs[xs.length - 1];
     const lastY = y(last);
-    const geom = curve.map((p, i) => `${xs[i].toFixed(1)},${y(p.value).toFixed(1)}`).join(';');
+    const geom = points.map((p, i) => `${xs[i].toFixed(1)},${y(p.value).toFixed(1)}`).join(';');
 
     return `
 <svg class="chart" viewBox="0 0 ${W} ${H}" style="height:${H}px" data-geom="${geom}"
@@ -244,14 +222,14 @@ PT.charts = (function () {
   }
 
   /** Follow the pointer across the profit curve and report the nearest point.
-      Snaps to real sessions: between two of them there is nothing to read. */
-  function trackArea(container, curve, onHover) {
+      Snaps to a bucket: between two of them there is nothing to read. */
+  function trackArea(container, points, onHover) {
     const svg = container.querySelector('svg.chart');
-    if (!svg || !curve.length) return;
+    if (!svg || !points.length) return;
 
     const geom = (svg.dataset.geom || '').split(';').filter(Boolean)
       .map((pair) => pair.split(',').map(Number));
-    if (geom.length !== curve.length) return;
+    if (geom.length !== points.length) return;
 
     const scrub = svg.querySelector('.chart-scrub');
     const scrubLine = scrub.querySelector('line');
@@ -273,7 +251,7 @@ PT.charts = (function () {
       scrubLine.setAttribute('x2', geom[index][0]);
       scrubDot.setAttribute('cx', geom[index][0]);
       scrubDot.setAttribute('cy', geom[index][1]);
-      onHover(curve[index], index);
+      onHover(points[index], index);
     };
     const leave = () => {
       scrub.setAttribute('opacity', '0');

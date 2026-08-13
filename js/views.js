@@ -75,7 +75,7 @@ PT.views = (function () {
     const range = PT.store.settings.range;
     const scoped = PT.stats.inRange(all, range);
     const s = PT.stats.summary(scoped);
-    const curve = PT.stats.cumulative(scoped);
+    const curve = PT.stats.series(scoped, range).points;
     const progress = PT.stats.monthProgress(all, PT.store.state.goals);
     const recent = all.slice(0, 5);
 
@@ -159,10 +159,10 @@ PT.views = (function () {
 
   /** Redraw at the width the container really has: the chart is measured in
       pixels, not stretched, so circles stay round on any screen. */
-  function paintCurve(wrap, curve, range) {
+  function paintCurve(wrap, curve) {
     if (!wrap) return;
     const width = Math.max(280, Math.round(wrap.clientWidth || 0)) || 680;
-    wrap.innerHTML = PT.charts.area(curve, { width, from: PT.stats.rangeStart(range) });
+    wrap.innerHTML = PT.charts.area(curve, { width });
   }
 
   function mountHome(root) {
@@ -170,7 +170,7 @@ PT.views = (function () {
     if (!all.length) return;
 
     const range = PT.store.settings.range;
-    const curve = PT.stats.cumulative(PT.stats.inRange(all, range));
+    const curve = PT.stats.series(PT.stats.inRange(all, range), range).points;
     const wrap = root.querySelector('#curve-wrap');
     const labelNode = root.querySelector('#hero-label');
     const valueNode = root.querySelector('#hero-value');
@@ -179,7 +179,7 @@ PT.views = (function () {
     const baseTone = valueNode ? valueNode.className : '';
 
     if (wrap && curve.length) {
-      paintCurve(wrap, curve, range);
+      paintCurve(wrap, curve);
       PT.charts.trackArea(wrap, curve, (point) => {
         if (!point) {
           labelNode.textContent = baseLabel;
@@ -187,7 +187,9 @@ PT.views = (function () {
           valueNode.className = baseTone;
           return;
         }
-        labelNode.textContent = `${u().dateLabel(point.date)} · ${u().signed(point.net)} this session`;
+        labelNode.textContent = point.count
+          ? `${point.label} · ${u().signed(point.net)} · ${point.count} session${point.count === 1 ? '' : 's'}`
+          : `${point.label} · didn’t play`;
         valueNode.textContent = u().signed(point.value);
         valueNode.className = `hero-value ${u().tone(point.value)}`;
       });
@@ -390,6 +392,7 @@ PT.views = (function () {
       <div class="kv"><span class="kv-key">Base</span><span class="kv-val mono">${u().esc(st.airtable.baseId || '—')}</span></div>
       <div class="kv"><span class="kv-key">Token</span><span class="kv-val mono">${st.airtable.token ? '••••••' + u().esc(st.airtable.token.slice(-4)) : '—'}</span></div>
       <div class="kv"><span class="kv-key">Last sync</span><span class="kv-val" style="font-weight:450">${u().esc(synced)}</span></div>
+      <div class="kv"><span class="kv-key">Version</span><span class="kv-val mono">${u().esc(PT.BUILD)}</span></div>
       ${outbox ? `<div class="kv"><span class="kv-key">Waiting to sync</span><span class="kv-val" style="color:var(--orange)">${outbox} change${outbox === 1 ? '' : 's'}</span></div>` : ''}
       <div class="btn-row" style="margin-top:14px">
         <button class="btn" data-action="sync">Sync now</button>

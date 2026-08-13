@@ -2,7 +2,7 @@
    The shell is cached so the app opens instantly and still works on a plane;
    Airtable calls always go to the network (the outbox handles being offline). */
 
-const VERSION = 'potracker-v1';
+const VERSION = 'potracker-2026-08-13.2';
 const SHELL = [
   './',
   'index.html',
@@ -46,10 +46,16 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return; // Airtable and friends: straight to the network
 
-  // Network-first, cache as the fallback. Online you always get the current
-  // build (no stale JavaScript after a deploy); offline you still get the app.
+  /* Network-first, cache as the fallback. Online you always get the current
+     build; offline you still get the app.
+
+     `cache: 'reload'` is what makes that true. A plain fetch() goes through
+     the browser's HTTP cache, and GitHub Pages serves these files with
+     max-age=600 — so for ten minutes "network-first" would quietly hand back
+     the same stale JavaScript a deploy was meant to replace. This asks the
+     server every time and refreshes the HTTP cache on the way. */
   event.respondWith(
-    fetch(request)
+    fetch(request, { cache: 'reload' })
       .then((response) => {
         if (response && response.status === 200 && response.type === 'basic') {
           const copy = response.clone();
