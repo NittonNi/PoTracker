@@ -182,6 +182,9 @@ PT.util = (function () {
   const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
   const sum = (arr, fn) => arr.reduce((acc, item) => acc + (fn ? fn(item) : item), 0);
   const uid = () => `tmp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  /* Travels with the record to Airtable and never changes, so a write that is
+     sent twice lands on the same row instead of creating a twin. */
+  const clientId = () => `pt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 
   function debounce(fn, wait) {
     let t;
@@ -241,6 +244,6 @@ PT.util = (function () {
     hoursLabel, clock, isoDate, hhmm, parseDate, dateLabel, monthKey, monthLabel, chrono,
     MONTHS, MONTHS_SHORT, DAYS, DAYS_SHORT,
     initials, roomColor, gameColor, ROOM_COLORS, GAME_COLORS,
-    clamp, sum, uid, debounce, animateNumber, haptic, toast, download
+    clamp, sum, uid, clientId, debounce, animateNumber, haptic, toast, download
   };
 })();

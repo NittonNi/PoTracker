@@ -114,6 +114,7 @@ PT.store = (function () {
       pending: Boolean(record.pending),
       // Tie-breaker for two sessions the same day with no times on them.
       created: stamp(record),
+      clientId: f['Client ID'] || '',
       date:    f['Date'] || '',
       start:   f['Start Time'] || '',
       end:     f['End Time'] || '',
@@ -142,6 +143,7 @@ PT.store = (function () {
       id: record.id,
       pending: Boolean(record.pending),
       created: stamp(record),
+      clientId: f['Client ID'] || '',
       entry:  f['Entry'] || '',
       date:   f['Date'] || '',
       type:   f['Type'] || 'Adjustment',
@@ -167,6 +169,7 @@ PT.store = (function () {
   /** Turn the app's session object back into Airtable field names. */
   function toSessionFields(s) {
     const fields = {
+      'Client ID':   s.clientId || '',
       'Session':     s.label || buildLabel(s),
       'Date':        s.date,
       'Start Time':  s.start || '',
@@ -194,6 +197,7 @@ PT.store = (function () {
 
   function toBankrollFields(b) {
     return {
+      'Client ID': b.clientId || '',
       'Entry':  b.entry || `${b.type} · ${PT.util.dateLabel(b.date)}`,
       'Date':   b.date,
       'Type':   b.type,

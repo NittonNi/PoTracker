@@ -87,6 +87,30 @@ PT.api = (function () {
     return data.records[0];
   }
 
+  /* ── writing a record without ever creating it twice ──────────────────
+     A plain POST is not safe to repeat: on a flaky connection the record
+     can reach Airtable while the response never comes back, and the retry
+     would insert a second copy. Airtable's upsert matches on a field we
+     control instead, so sending the same write twice lands on the same
+     row. Every session and bankroll entry carries that key from the moment
+     it is typed, offline included. */
+  async function upsertRecord(table, fields) {
+    // Merging on a blank key would match every other record that has none,
+    // so anything without one (a job queued by an older build) is created.
+    if (!fields['Client ID']) return createRecord(table, fields);
+
+    const data = await request(url(table), {
+      method: 'PATCH',
+      headers: headers(),
+      body: JSON.stringify({
+        performUpsert: { fieldsToMergeOn: ['Client ID'] },
+        records: [{ fields }],
+        typecast: true
+      })
+    });
+    return data.records[0];
+  }
+
   async function updateRecord(table, recordId, fields) {
     return request(url(table, `/${recordId}`), {
       method: 'PATCH',
@@ -105,6 +129,7 @@ PT.api = (function () {
      on the next sync or when the browser comes back online. */
 
   async function saveSession(session) {
+    if (!session.clientId) session.clientId = PT.util.clientId();
     const fields = PT.store.toSessionFields(session);
     const creating = !session.id || isTemp(session.id);
     const localId = session.id || PT.util.uid();
@@ -113,7 +138,7 @@ PT.api = (function () {
 
     try {
       if (creating) {
-        const record = await createRecord(TABLES.sessions, fields);
+        const record = await upsertRecord(TABLES.sessions, fields);
         PT.store.removeSession(localId);
         PT.store.upsertSession(PT.store.normaliseSession(record));
         return record.id;
@@ -139,6 +164,7 @@ PT.api = (function () {
   }
 
   async function saveBankroll(entry) {
+    if (!entry.clientId) entry.clientId = PT.util.clientId();
     const fields = PT.store.toBankrollFields(entry);
     const creating = !entry.id || isTemp(entry.id);
     const localId = entry.id || PT.util.uid();
@@ -147,7 +173,7 @@ PT.api = (function () {
 
     try {
       if (creating) {
-        const record = await createRecord(TABLES.bankroll, fields);
+        const record = await upsertRecord(TABLES.bankroll, fields);
         PT.store.removeBankroll(localId);
         PT.store.upsertBankroll(PT.store.normaliseBankroll(record));
         return record.id;
@@ -217,7 +243,7 @@ PT.api = (function () {
     for (const job of jobs) {
       try {
         if (job.op === 'create') {
-          const record = await createRecord(job.table, job.fields);
+          const record = await upsertRecord(job.table, job.fields);
           if (job.table === TABLES.sessions) {
             PT.store.removeSession(job.localId);
             PT.store.upsertSession(PT.store.normaliseSession(record));

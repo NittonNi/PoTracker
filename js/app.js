@@ -1082,10 +1082,27 @@ PT.app = (function () {
   function updateSyncDot() {
     const dot = u.$('#sync-dot');
     const pending = PT.store.state.outbox.length;
+    refreshOutboxBar();
     dot.className = 'sync-dot';
     if (!navigator.onLine) { dot.classList.add('is-visible', 'is-offline'); dot.title = 'Offline'; return; }
     if (pending) { dot.classList.add('is-visible', 'is-offline'); dot.title = `${pending} change(s) waiting to sync`; return; }
     dot.title = 'Synced';
+  }
+
+  /* A grey pill inside one row was too quiet: a change that only exists on this
+     phone is worth a bar you cannot miss, with the way out on it. */
+  function refreshOutboxBar() {
+    const bar = u.$('#outbox-bar');
+    if (!bar) return;
+    const pending = PT.store.state.outbox.length;
+    if (!pending) { bar.classList.add('hidden'); return; }
+
+    bar.classList.remove('hidden');
+    u.$('#outbox-bar-meta').textContent = navigator.onLine
+      ? `${pending} change${pending === 1 ? '' : 's'} still on this device`
+      : `${pending} change${pending === 1 ? '' : 's'} waiting — you are offline`;
+    u.$('#outbox-bar-retry').textContent = navigator.onLine ? 'Retry' : 'Offline';
+    u.$('#outbox-bar-retry').disabled = !navigator.onLine;
   }
 
   async function sync(options) {
@@ -1243,6 +1260,8 @@ PT.app = (function () {
       if (e.target.closest('#timer-bar-stop')) { finishTimer(); return; }
       runningTimerSheet();
     });
+
+    u.$('#outbox-bar-retry').addEventListener('click', () => sync());
 
     // Segmented controls are re-created on every render, so delegate.
     const SEGMENTS = { '#range-seg': 'range', '#weekday-seg': 'weekdayMetric' };

@@ -416,6 +416,23 @@ body.has-sheet .fab { opacity: 0; transform: scale(.8); pointer-events: none; }
   color: #fff; box-shadow: 0 6px 20px rgba(52,199,89,.3);
   animation: viewIn .4s var(--ease-spring);
 }
+/* Same shape as the timer bar, amber instead of green: something of yours is
+   still only on this device, and it should not take detective work to notice. */
+.outbox-bar {
+  position: sticky; top: calc(var(--safe-t) + 52px); z-index: 38;
+  max-width: 1000px; margin: 10px auto -4px; width: calc(100% - 32px);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 11px 14px; border-radius: 16px;
+  background: linear-gradient(135deg, var(--orange), #ff9f0a);
+  color: #fff; box-shadow: 0 6px 20px rgba(255,149,0,.28);
+  animation: viewIn .4s var(--ease-spring);
+}
+.outbox-bar-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.outbox-bar-label { font-size: 12px; font-weight: 600; opacity: .85; }
+.outbox-bar-meta { font-size: 14px; font-weight: 600; letter-spacing: -.2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.outbox-bar .btn-stop { background: rgba(255,255,255,.22); flex: none; }
+.outbox-dot { width: 9px; height: 9px; border-radius: 50%; background: #fff; flex: none; }
+
 .timer-bar-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .timer-bar-label { font-size: 12px; font-weight: 600; opacity: .85; }
 .timer-bar-meta { font-size: 14px; font-weight: 600; letter-spacing: -.2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

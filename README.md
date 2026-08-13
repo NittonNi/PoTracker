@@ -125,6 +125,17 @@ python -m http.server 8123
 Service workers and the share sheet need `http://localhost` or HTTPS — opening `index.html`
 straight off the filesystem will mostly work but not entirely.
 
+## Tests
+
+```bash
+node test/money.js
+```
+
+No dependencies, no runner. It covers the one thing the app can get wrong without anyone
+noticing: the result of a session, which is derived from the balance you close with rather
+than typed. Run it after touching `js/stats.js`, `js/store.js` or the ordering in
+`js/util.js`.
+
 ## Project layout
 
 ```
@@ -138,6 +149,7 @@ js/charts.js          hand-rolled SVG charts, no chart library
 js/share.js           canvas result cards
 js/views.js           screen rendering
 js/app.js             routing, sheets, timer, sync
+test/money.js         checks on the balance maths
 sw.js                 offline shell cache
 ```
 
