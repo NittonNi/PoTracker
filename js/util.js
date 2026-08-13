@@ -141,6 +141,23 @@ PT.util = (function () {
 
   const monthKey = (iso) => String(iso || '').slice(0, 7);
 
+  /* Play order for two sessions: by day, then by the clock when both have one,
+     falling back to the order they were logged. Two sessions on the same day
+     with no start times used to compare equal, which hid the earlier one from
+     the balance maths — so the second one got measured against the day before. */
+  function chrono(a, b) {
+    const da = a.date || '';
+    const db = b.date || '';
+    if (da !== db) return da < db ? -1 : 1;
+    if (a.start && b.start && a.start !== b.start) return a.start < b.start ? -1 : 1;
+    // Records cached before this stamp existed count as the older ones; a
+    // session being typed right now carries Date.now(), so it lands last.
+    const ca = Number(a.created) || 0;
+    const cb = Number(b.created) || 0;
+    if (ca !== cb) return ca < cb ? -1 : 1;
+    return 0;
+  }
+
   function monthLabel(key) {
     const [y, m] = String(key).split('-').map(Number);
     if (!y || !m) return key;
@@ -221,7 +238,7 @@ PT.util = (function () {
   return {
     $, $$, el, esc, icon,
     money, signed, num, pct, tone,
-    hoursLabel, clock, isoDate, hhmm, parseDate, dateLabel, monthKey, monthLabel,
+    hoursLabel, clock, isoDate, hhmm, parseDate, dateLabel, monthKey, monthLabel, chrono,
     MONTHS, MONTHS_SHORT, DAYS, DAYS_SHORT,
     initials, roomColor, gameColor, ROOM_COLORS, GAME_COLORS,
     clamp, sum, uid, debounce, animateNumber, haptic, toast, download

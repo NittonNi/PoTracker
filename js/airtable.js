@@ -109,7 +109,7 @@ PT.api = (function () {
     const creating = !session.id || isTemp(session.id);
     const localId = session.id || PT.util.uid();
 
-    PT.store.upsertSession(PT.store.normaliseSession({ id: localId, fields, pending: true }));
+    PT.store.upsertSession(PT.store.normaliseSession({ id: localId, fields, created: session.created, pending: true }));
 
     try {
       if (creating) {
@@ -119,7 +119,7 @@ PT.api = (function () {
         return record.id;
       }
       await updateRecord(TABLES.sessions, session.id, fields);
-      PT.store.upsertSession(PT.store.normaliseSession({ id: session.id, fields }));
+      PT.store.upsertSession(PT.store.normaliseSession({ id: session.id, fields, created: session.created }));
       return session.id;
     } catch (err) {
       queueWrite({ op: creating ? 'create' : 'update', table: TABLES.sessions, localId, recordId: creating ? null : session.id, fields });
@@ -143,7 +143,7 @@ PT.api = (function () {
     const creating = !entry.id || isTemp(entry.id);
     const localId = entry.id || PT.util.uid();
 
-    PT.store.upsertBankroll(PT.store.normaliseBankroll({ id: localId, fields, pending: true }));
+    PT.store.upsertBankroll(PT.store.normaliseBankroll({ id: localId, fields, created: entry.created, pending: true }));
 
     try {
       if (creating) {
@@ -153,7 +153,7 @@ PT.api = (function () {
         return record.id;
       }
       await updateRecord(TABLES.bankroll, entry.id, fields);
-      PT.store.upsertBankroll(PT.store.normaliseBankroll({ id: entry.id, fields }));
+      PT.store.upsertBankroll(PT.store.normaliseBankroll({ id: entry.id, fields, created: entry.created }));
       return entry.id;
     } catch (err) {
       queueWrite({ op: creating ? 'create' : 'update', table: TABLES.bankroll, localId, recordId: creating ? null : entry.id, fields });

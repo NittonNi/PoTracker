@@ -330,6 +330,10 @@ PT.views = (function () {
       <div class="kv"><span class="kv-key">Withdrawals</span><span class="kv-val">${u().money(bankroll.withdrawals)}</span></div>
       <div class="kv"><span class="kv-key">Bonuses &amp; rakeback</span><span class="kv-val">${u().money(bankroll.extras)}</span></div>
       <div class="kv"><span class="kv-key">Table profit</span><span class="kv-val ${u().tone(bankroll.netProfit)}">${u().signed(bankroll.netProfit)}</span></div>
+      ${Math.abs(bankroll.unexplained) >= 0.005 ? `<div class="kv">
+        <span class="kv-key">Unaccounted <span class="muted small">— gap to the balance you last read</span></span>
+        <span class="kv-val ${u().tone(bankroll.unexplained)}">${u().signed(bankroll.unexplained)}</span>
+      </div>` : ''}
       <div class="btn-row" style="margin-top:14px">
         <button class="btn btn-primary" data-action="new-bankroll">Add movement</button>
         ${PT.store.state.bankroll.length ? '<button class="btn" data-action="view-bankroll">History</button>' : ''}

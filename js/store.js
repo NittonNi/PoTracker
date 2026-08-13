@@ -91,6 +91,13 @@ PT.store = (function () {
      Airtable's formula fields are the source of truth *inside* Airtable,
      but the app recomputes every derived number locally: that way a
      session typed while offline shows correct maths before it ever syncs. */
+  /** When a record came into being: Airtable's stamp, or now for a local one. */
+  function stamp(record) {
+    if (record.created) return Number(record.created);
+    if (record.createdTime) return Date.parse(record.createdTime);
+    return Date.now();
+  }
+
   function normaliseSession(record) {
     const f = record.fields || {};
     const buyIn      = Number(f['Buy-in']) || 0;
@@ -104,6 +111,8 @@ PT.store = (function () {
     return {
       id: record.id,
       pending: Boolean(record.pending),
+      // Tie-breaker for two sessions the same day with no times on them.
+      created: stamp(record),
       date:    f['Date'] || '',
       start:   f['Start Time'] || '',
       end:     f['End Time'] || '',
@@ -131,6 +140,7 @@ PT.store = (function () {
     return {
       id: record.id,
       pending: Boolean(record.pending),
+      created: stamp(record),
       entry:  f['Entry'] || '',
       date:   f['Date'] || '',
       type:   f['Type'] || 'Adjustment',
@@ -173,9 +183,11 @@ PT.store = (function () {
       'Notes':       s.notes || ''
     };
     if (s.table) fields['Table'] = s.table;
-    if (s.closing !== null && s.closing !== undefined && s.closing !== '') {
-      fields['Closing Balance'] = round2(s.closing);
-    }
+    // Always written, null included: a session switched back to "cashed out"
+    // must not keep the balance typed on an earlier attempt, or every later
+    // session would measure itself against a figure that no longer applies.
+    fields['Closing Balance'] = (s.closing === null || s.closing === undefined || s.closing === '')
+      ? null : round2(s.closing);
     return fields;
   }
 
@@ -232,10 +244,7 @@ PT.store = (function () {
 
   /** Sessions newest first — the order every view expects. */
   function sortedSessions() {
-    return state.sessions.slice().sort((a, b) => {
-      if (a.date !== b.date) return a.date < b.date ? 1 : -1;
-      return (b.start || '').localeCompare(a.start || '');
-    });
+    return state.sessions.slice().sort((a, b) => PT.util.chrono(b, a));
   }
 
   /* Optimistic local mutations. The record keeps its temporary id until a

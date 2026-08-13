@@ -133,6 +133,7 @@ PT.app = (function () {
     const d = PT.store.settings.defaults;
     const form = Object.assign({
       id: null,
+      created: Date.now(), // orders it after anything already logged today
       date: u.isoDate(),
       start: '', end: '', minutes: 0,
       room: d.room, game: d.game, stakes: d.stakes, table: d.table,
@@ -314,10 +315,15 @@ PT.app = (function () {
           + `Log your starting balance as a deposit first (Stats → Bankroll).`;
         return;
       }
+      const from = ref.source === 'anchor'
+        ? `the balance you closed your last session with (${u.esc(u.dateLabel(ref.anchor.date))})`
+        : 'everything you have logged in this room so far';
+
       node.className = 'field-note';
-      node.innerHTML = `Balance before this session: <b>${u.money(ref.balance)}</b> · `
-        + `net is worked out from the difference`
-        + (form.rebuys ? `. Rebuys don’t affect it — that money never left ${u.esc(form.room)}.` : '');
+      node.innerHTML = `Net is this minus <b>${u.money(ref.balance)}</b> — ${from}`
+        + (ref.sinceAnchor ? `, plus the ${ref.sinceAnchor} session${ref.sinceAnchor === 1 ? '' : 's'} played since` : '')
+        + '.'
+        + (form.rebuys ? ` Rebuys don’t affect it — that money never left ${u.esc(form.room)}.` : '');
     }
 
     function recompute() {
@@ -347,24 +353,25 @@ PT.app = (function () {
        the balance is only as right as what you've logged. */
     function paintRoomBalance() {
       const node = q('#f-room-balance');
-      const ledger = PT.stats.roomLedger(PT.store.sortedSessions(), PT.store.state.bankroll);
-      const room = ledger.find((r) => r.key === form.room);
-      const tracked = Boolean(room && (room.deposited || room.withdrawn || room.sessions));
+      // What the room held when you sat down — so editing an old session
+      // compares against that day, not against today's balance.
+      const ref = PT.stats.balanceBefore(
+        form, PT.store.sortedSessions(), PT.store.state.bankroll,
+        existing && existing.id ? existing.id : null
+      );
 
-      if (!tracked) {
+      if (!ref.hasReference) {
         node.className = 'field-note';
         node.innerHTML = `Nothing tracked in ${u.esc(form.room)} yet — log a deposit in Stats → Bankroll.`;
         return;
       }
 
-      // When editing, this session's own result already sits inside the balance.
-      const editing = existing && existing.id && existing.room === form.room;
-      const balance = room.balance - (editing ? existing.net : 0);
+      const balance = ref.balance;
       const stake = (Number(form.buyIn) || 0) + (Number(form.rebuyTotal) || 0);
       const over = stake > balance + 0.005;
 
       node.className = `field-note${over ? ' is-warning' : ''}`;
-      node.innerHTML = `Balance in ${u.esc(form.room)}: <b>${u.money(balance)}</b>`
+      node.innerHTML = `Balance in ${u.esc(form.room)} when you sat down: <b>${u.money(balance)}</b>`
         + (over ? ` · this puts ${u.money(stake)} in play, more than the room holds` : '');
     }
 

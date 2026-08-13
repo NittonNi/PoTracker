@@ -67,10 +67,7 @@ PT.stats = (function () {
 
   /* ── cumulative profit curve (oldest → newest) ── */
   function cumulative(sessions) {
-    const ordered = sessions.slice().sort((a, b) => {
-      if (a.date !== b.date) return a.date < b.date ? -1 : 1;
-      return (a.start || '').localeCompare(b.start || '');
-    });
+    const ordered = sessions.slice().sort(PT.util.chrono);
     let running = 0;
     return ordered.map((s, i) => {
       running += s.net;
@@ -91,7 +88,7 @@ PT.stats = (function () {
 
   /** Longest run of winning and of losing sessions, plus the current one. */
   function streaks(sessions) {
-    const ordered = sessions.slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    const ordered = sessions.slice().sort(PT.util.chrono);
     let bestWin = 0, bestLoss = 0, runWin = 0, runLoss = 0;
     for (const s of ordered) {
       if (s.net > 0) { runWin += 1; runLoss = 0; }
@@ -241,7 +238,40 @@ PT.stats = (function () {
      A buy-in is NOT money leaving the room — it just moves your own money
      from the room's cashier onto a table and back again. Only deposits,
      withdrawals and results change what a room actually holds. Buy-ins and
-     rebuys are therefore tracked for ROI and risk, never for the balance. */
+     rebuys are therefore tracked for ROI and risk, never for the balance.
+
+     On top of that sum sits `unexplained`: the gap between the log and the
+     last balance you actually read off the cashier. Keeping it as its own
+     line means the balance shown matches reality without pretending the
+     difference was profit. */
+
+  /** Signed effect of a cash movement on what a room holds. */
+  function movementDelta(e) {
+    if (e.type === 'Deposit')    return Math.abs(e.amount);
+    if (e.type === 'Withdrawal') return -Math.abs(e.amount);
+    if (e.type === 'Bonus' || e.type === 'Rakeback') return Math.abs(e.amount);
+    return e.amount; // Result and Adjustment are already signed
+  }
+
+  /** How much of a room's last known balance the logged history cannot explain. */
+  function unexplainedIn(room, sessions, entries) {
+    const mine = (sessions || []).filter((s) => s.room === room).sort(PT.util.chrono);
+    const anchor = anchorFor(mine);
+    if (!anchor) return 0;
+
+    // Everything up to and including the anchor — the mirror image of the
+    // "after the anchor" split balanceBefore() replays.
+    const upto = mine.filter((s) => PT.util.chrono(s, anchor) <= 0);
+    const cash = (entries || []).filter((e) => e.room === room && e.date
+      && (e.date < anchor.date
+        || (e.date === anchor.date && (e.created || 0) <= (anchor.created || 0))));
+
+    let logged = 0;
+    for (const s of upto) logged += s.net;
+    for (const e of cash) logged += movementDelta(e);
+    return (Number(anchor.closing) || 0) - logged;
+  }
+
   function roomLedger(sessions, entries) {
     const map = new Map();
     const touch = (room) => {
@@ -272,13 +302,17 @@ PT.stats = (function () {
       else                               r.adjustments += e.amount; // signed
     }
 
-    return Array.from(map.values()).map((r) => Object.assign(r, {
-      balance: r.deposited - r.withdrawn + r.bonuses + r.played + r.adjustments,
-      // What the room has actually made you, ignoring your own money.
-      profit: r.played + r.bonuses,
-      atRisk: r.deposited - r.withdrawn,
-      hours: r.minutes / 60
-    })).sort((a, b) => b.balance - a.balance);
+    return Array.from(map.values()).map((r) => {
+      const unexplained = unexplainedIn(r.key, sessions, entries);
+      return Object.assign(r, {
+        unexplained,
+        balance: r.deposited - r.withdrawn + r.bonuses + r.played + r.adjustments + unexplained,
+        // What the room has actually made you, ignoring your own money.
+        profit: r.played + r.bonuses,
+        atRisk: r.deposited - r.withdrawn,
+        hours: r.minutes / 60
+      });
+    }).sort((a, b) => b.balance - a.balance);
   }
 
   /** The same numbers rolled up across every room. */
@@ -292,6 +326,7 @@ PT.stats = (function () {
       deposits:    total((r) => r.deposited),
       withdrawals: total((r) => r.withdrawn),
       bonuses, adjustments,
+      unexplained: total((r) => r.unexplained),
       played:      total((r) => r.played),
       current:     total((r) => r.balance),
       profit:      total((r) => r.profit),
@@ -319,11 +354,23 @@ PT.stats = (function () {
 
        net = closing balance − whatever the room held before this session
 
+     and "whatever it held before" is read off the **last session you closed**,
+     not off your deposits. Anything else drifts: one session typed by cash-out,
+     one figure fixed by hand in Airtable, and every later result would be
+     measured against a running total that no longer matches the cashier.
+
      Rebuys need no correction: taking another 20 € onto the table moves your
      own money inside the room, so the room's balance never changed. Topping
      the room up with NEW money does change it, which is why that has to be
      logged as a deposit — it then lands in the "before" figure below. */
-  const orderKey = (s) => `${s.date || ''} ${s.start || '00:00'}`;
+
+  /** The last session in an ordered list whose closing balance we can trust. */
+  function anchorFor(ordered) {
+    for (let i = ordered.length - 1; i >= 0; i -= 1) {
+      if (ordered[i].closing !== null && ordered[i].closing !== undefined) return ordered[i];
+    }
+    return null;
+  }
 
   /**
    * What `room` held immediately before `session`.
@@ -332,32 +379,55 @@ PT.stats = (function () {
    */
   function balanceBefore(session, sessions, entries, excludeId) {
     const room = session.room;
-    const cutoff = orderKey(session);
 
-    const earlier = (sessions || []).filter((s) =>
-      s.room === room && s.id !== excludeId && orderKey(s) < cutoff);
+    const earlier = (sessions || [])
+      .filter((s) => s.room === room && s.id !== excludeId && PT.util.chrono(s, session) < 0)
+      .sort(PT.util.chrono);
 
     // Cash movements are only dated, so treat them as happening before any
     // session played that same day — which is the order you actually do it in.
     const movements = (entries || []).filter((e) =>
       e.room === room && e.date && e.date <= (session.date || ''));
 
+    const anchor = anchorFor(earlier);
+
+    if (anchor) {
+      // Start from the balance you actually saw, then replay only what
+      // happened after it. Movements dated on the anchor's own day are
+      // already inside that balance unless they were logged afterwards.
+      const since = earlier.filter((s) => PT.util.chrono(anchor, s) < 0);
+      const cash = movements.filter((e) => e.date > anchor.date
+        || (e.date === anchor.date && (e.created || 0) > (anchor.created || 0)));
+
+      let balance = Number(anchor.closing) || 0;
+      for (const s of since) balance += s.net;
+      for (const e of cash) balance += movementDelta(e);
+
+      return {
+        balance,
+        hasReference: true,
+        source: 'anchor',
+        anchor,
+        priorSessions: earlier.length,
+        sinceAnchor: since.length,
+        movements: cash.length
+      };
+    }
+
+    // Nothing closed yet in this room: fall back to adding up what is logged.
     let balance = 0;
     for (const s of earlier) balance += s.net;
-    for (const e of movements) {
-      if (e.type === 'Deposit')         balance += Math.abs(e.amount);
-      else if (e.type === 'Withdrawal') balance -= Math.abs(e.amount);
-      else if (e.type === 'Bonus' || e.type === 'Rakeback') balance += Math.abs(e.amount);
-      else if (e.type === 'Result')     balance += e.amount;
-      else                              balance += e.amount;
-    }
+    for (const e of movements) balance += movementDelta(e);
 
     return {
       balance,
       // With no deposits and no earlier sessions there is nothing to subtract
       // from, so the whole closing balance would look like profit.
       hasReference: earlier.length > 0 || movements.length > 0,
+      source: earlier.length || movements.length ? 'running' : 'none',
+      anchor: null,
       priorSessions: earlier.length,
+      sinceAnchor: 0,
       movements: movements.length
     };
   }
