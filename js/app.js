@@ -1285,6 +1285,10 @@ PT.app = (function () {
       if (e.key === 't') { e.preventDefault(); ACTIONS['start-timer'](); }
     });
 
+    // The curve is drawn at a measured pixel width, so it has to be redrawn
+    // when that width changes: rotating the phone, mostly.
+    window.addEventListener('resize', u.debounce(() => render(), 220));
+
     window.addEventListener('online', () => { updateSyncDot(); sync({ silent: true }); });
     window.addEventListener('offline', updateSyncDot);
     document.addEventListener('visibilitychange', () => {

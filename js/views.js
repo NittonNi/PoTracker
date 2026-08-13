@@ -157,6 +157,14 @@ PT.views = (function () {
     </div>`;
   }
 
+  /** Redraw at the width the container really has: the chart is measured in
+      pixels, not stretched, so circles stay round on any screen. */
+  function paintCurve(wrap, curve, range) {
+    if (!wrap) return;
+    const width = Math.max(280, Math.round(wrap.clientWidth || 0)) || 680;
+    wrap.innerHTML = PT.charts.area(curve, { width, from: PT.stats.rangeStart(range) });
+  }
+
   function mountHome(root) {
     const all = PT.store.sortedSessions();
     if (!all.length) return;
@@ -171,6 +179,7 @@ PT.views = (function () {
     const baseTone = valueNode ? valueNode.className : '';
 
     if (wrap && curve.length) {
+      paintCurve(wrap, curve, range);
       PT.charts.trackArea(wrap, curve, (point) => {
         if (!point) {
           labelNode.textContent = baseLabel;
