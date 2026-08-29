@@ -53,7 +53,9 @@ const session = (over) => PT.store.normaliseSession({
     'Buy-in': over.buyIn === undefined ? 10 : over.buyIn,
     'Rebuy Total': over.rebuyTotal || 0,
     'Cash Out': over.cashOut === undefined ? 0 : over.cashOut,
-    Minutes: over.minutes || 60
+    Minutes: over.minutes || 60,
+    Game: over.game || 'Cash NLHE',
+    Tables: over.tables
   }, over.closing === undefined ? {} : { 'Closing Balance': over.closing })
 });
 
@@ -217,6 +219,89 @@ group('totals add up', () => {
   check('losses', summary.losses, 1);
   const curve = PT.stats.cumulative(all);
   check('curve ends on the total', curve[curve.length - 1].value, 5);
+});
+
+
+/* ── multi-tabling ──────────────────────────────────────────────────────
+   The second thing in this app that is derived rather than typed: how many
+   tables a session was played on, and whether the difference between two
+   table counts is real or is a month of running good. */
+
+group('the timer measures the table count instead of asking afterwards', () => {
+  const t0 = Date.UTC(2026, 2, 1, 20, 0, 0);
+  const at = (mins) => t0 + mins * 60000;
+
+  const ramped = PT.stats.tableAverage([{ at: t0, tables: 4 }, { at: at(60), tables: 2 }], at(90));
+  check('the average is weighted by how long each count lasted', ramped.tables, 3.3);
+  check('and the segments it came from are kept', ramped.log, '4x60|2x30');
+
+  const jitter = PT.stats.tableAverage(
+    [{ at: t0, tables: 2 }, { at: at(30), tables: 3 }, { at: at(30), tables: 2 }], at(60));
+  check('a change and a change straight back leaves no segment', jitter.log, '');
+  check('and the count is the one actually played', jitter.tables, 2);
+
+  const brief = PT.stats.tableAverage([{ at: t0, tables: 3 }], t0 + 20000);
+  check('a session with no whole minute in it still has a count', brief.tables, 3);
+
+  const parsed = PT.stats.parseTableLog(ramped.log);
+  check('the log reads back as segments', parsed.length, 2);
+  check('with the minutes intact', parsed[1].minutes, 30);
+});
+
+group('a session is filed under the tables it was played on', () => {
+  const s = session({ id: 'mt1', date: '2026-03-01', minutes: 120, tables: 3.4, cashOut: 40 });
+  check('table-hours multiply the clock', s.tableHours, 6.8);
+  check('and per table-hour divides the profit by them', s.perTableHour, 30 / 6.8);
+  check('3.4 tables lands in the 3–4 band', PT.stats.bandFor(s.tables).key, '3-4');
+
+  const unknown = session({ id: 'mt2', date: '2026-03-01', minutes: 60 });
+  check('a session logged before the count existed has no volume', unknown.tableHours, 0);
+  check('and no per-table rate to mislead with', unknown.perTableHour, 0);
+  check('it is not quietly counted as one table', PT.stats.bandFor(unknown.tables), null);
+});
+
+group('the better band has to survive being resampled', () => {
+  const day = (i) => `2026-03-${String(i + 1).padStart(2, '0')}`;
+  const band = (prefix, tables, cashOut) => Array.from({ length: 10 }, (_, i) => session({
+    id: prefix + i, created: 100 + i, date: day(i), minutes: 60, tables,
+    cashOut: typeof cashOut === 'function' ? cashOut(i) : cashOut
+  }));
+
+  // Every session identical: there is nothing for the resampling to move.
+  const steady = PT.stats.multitabling(band('a', 1, 15).concat(band('b', 4, 30)), 'all');
+  check('both bands are big enough to rate', steady.rated.length, 2);
+  check('the winner is the one paying more per hour', steady.comparison.best.key, '3-4');
+  check('by the gap between the two rates', steady.comparison.delta, 15);
+  check('and with no spread there is no doubt', steady.comparison.decided, true);
+  check('per table-hour still falls, as it always does', steady.comparison.best.perTableHour, 5);
+
+  // The same average arriving in swings, which is what poker actually does.
+  const swings = PT.stats.multitabling(
+    band('c', 1, 15).concat(band('d', 4, (i) => (i % 2 ? 130 : -70))), 'all');
+  check('the swingy band still looks better on average', swings.comparison.delta > 0, true);
+  check('but the gap does not clear zero', swings.comparison.decided, false);
+  check('and the app can say how much more it would take', swings.comparison.hoursNeeded > 0, true);
+
+  // A band nobody has played enough of is shown but never compared.
+  const thin = PT.stats.multitabling(band('e', 1, 15).concat([
+    session({ id: 'f1', created: 900, date: '2026-04-01', minutes: 60, tables: 6, cashOut: 200 })
+  ]), 'all');
+  check('the thin band is listed', thin.bands.length, 2);
+  check('but not rated', thin.rated.length, 1);
+  check('so no winner is declared off one session', thin.comparison, null);
+});
+
+group('the comparison only looks at games where tables mean something', () => {
+  const cash = session({ id: 'g1', date: '2026-03-01', minutes: 60, tables: 2, cashOut: 20 });
+  const mtt  = session({ id: 'g2', date: '2026-03-02', minutes: 60, tables: 1, cashOut: 0, game: 'MTT' });
+  const blank = session({ id: 'g3', date: '2026-03-03', minutes: 60, cashOut: 12 });
+
+  check('tournaments stay out of the cash comparison',
+    PT.stats.multitabling([cash, mtt, blank], 'cash').tracked, 1);
+  check('and come back in when you ask for everything',
+    PT.stats.multitabling([cash, mtt, blank], 'all').tracked, 2);
+  check('a session with no count is reported, not hidden',
+    PT.stats.multitabling([cash, mtt, blank], 'cash').missing, 1);
 });
 
 /* ── report ── */

@@ -45,6 +45,8 @@ PT.stats = (function () {
     const minutes  = PT.util.sum(sessions, (s) => s.minutes);
     const invested = PT.util.sum(sessions, (s) => s.invested);
     const hours    = minutes / 60;
+    // Volume only counts the sessions that recorded how many tables it was.
+    const tableHours = PT.util.sum(sessions, (s) => s.tableHours || 0);
     const wins   = sessions.filter((s) => s.net > 0).length;
     const losses = sessions.filter((s) => s.net < 0).length;
 
@@ -53,8 +55,9 @@ PT.stats = (function () {
     const worst = sorted[sorted.length - 1] || null;
 
     return {
-      count, net, minutes, hours, invested, wins, losses,
+      count, net, minutes, hours, invested, wins, losses, tableHours,
       perHour:  hours > 0 ? net / hours : 0,
+      perTableHour: tableHours > 0 ? net / tableHours : 0,
       winRate:  count ? (wins / count) * 100 : 0,
       roi:      invested > 0 ? (net / invested) * 100 : 0,
       avgNet:   count ? net / count : 0,
@@ -272,6 +275,242 @@ PT.stats = (function () {
     }
     return buckets.filter((b) => b.count > 0)
       .map((b) => Object.assign(b, { hours: b.minutes / 60, perHour: b.minutes > 0 ? b.net / (b.minutes / 60) : 0 }));
+  }
+
+
+  /* ── multi-tabling ────────────────────────────────────────────────────
+     A second table doubles the hands you see in an hour and halves the
+     attention each one gets. Which of the two wins is a question about you,
+     not about poker, and the only number that answers it is money per hour
+     of your life. Money per table-hour always falls as you add tables —
+     that is arithmetic, not a verdict. It is here to show what the volume
+     costs you, never to pick the winner. */
+
+  const TABLE_BANDS = [
+    { key: '1',   label: '1 table',    min: 0,   max: 1.5 },
+    { key: '2',   label: '2 tables',   min: 1.5, max: 2.5 },
+    { key: '3-4', label: '3–4 tables', min: 2.5, max: 4.5 },
+    { key: '5-6', label: '5–6 tables', min: 4.5, max: 6.5 },
+    { key: '7+',  label: '7+ tables',  min: 6.5, max: Infinity }
+  ];
+
+  /* Multi-tabling is an online cash idea. An MTT busted in level three and a
+     six-hour deep run are both "one table", and neither says anything about
+     how many you can handle, so cash is what the comparison defaults to. */
+  const CASH_GAMES = ['Cash NLHE', 'Cash PLO', 'Fast-fold'];
+
+  const TABLE_SCOPES = [
+    { id: 'cash', label: 'Cash' },
+    { id: 'all',  label: 'Everything' }
+  ];
+
+  // Zero is not the bottom band, it is the absence of one.
+  const bandFor = (tables) => (tables > 0
+    ? TABLE_BANDS.find((b) => tables >= b.min && tables < b.max) || null
+    : null);
+
+  /** Sessions carrying a table count and enough clock to rate. */
+  function tableScoped(sessions, scope) {
+    const counted = sessions.filter((s) => s.tables > 0 && s.minutes > 0);
+    return scope === 'all' ? counted : counted.filter((s) => CASH_GAMES.includes(s.game));
+  }
+
+  /* ── what the timer measured ──────────────────────────────────────────
+     Tables are not a fact about a session, they are something that changes
+     inside it: you open a fourth when it runs well and drop to two when you
+     are tired. Asked afterwards you would guess, so the running timer stamps
+     every change instead, and the session ends up with a time-weighted
+     average and the log that produced it. */
+
+  /** Fold the timer's stamps into segments and their weighted average. */
+  function tableAverage(marks, endMs) {
+    const list = (marks || [])
+      .filter((m) => m && Number.isFinite(m.at) && m.at <= endMs)
+      .sort((a, b) => a.at - b.at);
+    if (!list.length) return { tables: 0, log: '' };
+
+    const segments = [];
+    list.forEach((m, i) => {
+      const until = i + 1 < list.length ? list[i + 1].at : endMs;
+      const minutes = Math.round(Math.max(0, until - m.at) / 60000);
+      const tables = Math.max(1, Math.round(Number(m.tables) || 1));
+      if (!minutes) return;
+      // Up and straight back down leaves no segment behind.
+      const last = segments[segments.length - 1];
+      if (last && last.tables === tables) last.minutes += minutes;
+      else segments.push({ tables, minutes });
+    });
+
+    const total = segments.reduce((sum, s) => sum + s.minutes, 0);
+    const lastCount = Math.max(1, Math.round(Number(list[list.length - 1].tables) || 1));
+    // Nothing lasted a whole minute: too short to average, still one count.
+    if (!total) return { tables: lastCount, log: '' };
+
+    const weighted = segments.reduce((sum, s) => sum + s.tables * s.minutes, 0) / total;
+    return {
+      tables: Math.round(weighted * 10) / 10,
+      // Only worth keeping when it says something the average does not.
+      log: segments.length > 1 ? segments.map((s) => s.tables + 'x' + s.minutes).join('|') : ''
+    };
+  }
+
+  /** "4x37|3x21" back into segments. */
+  function parseTableLog(log) {
+    return String(log || '').split('|').map((part) => {
+      const bits = part.split('x');
+      return { tables: Number(bits[0]), minutes: Number(bits[1]) };
+    }).filter((s) => s.tables > 0 && s.minutes > 0);
+  }
+
+  /* ── the bands ── */
+
+  /** What a band was mostly made of, so moving up in stakes at the same time
+      as moving up in tables does not get read as a table effect. */
+  function dominantMix(sessions) {
+    const tally = new Map();
+    let total = 0;
+    for (const s of sessions) {
+      const key = [s.game, s.stakes].filter(Boolean).join(' · ');
+      tally.set(key, (tally.get(key) || 0) + s.minutes);
+      total += s.minutes;
+    }
+    let top = null;
+    tally.forEach((minutes, key) => { if (!top || minutes > top.minutes) top = { key, minutes }; });
+    return top && total ? { key: top.key, share: top.minutes / total } : null;
+  }
+
+  function byTableBand(sessions) {
+    const map = new Map();
+    for (const s of sessions) {
+      const band = bandFor(s.tables);
+      if (!band) continue;
+      if (!map.has(band.key)) {
+        map.set(band.key, {
+          key: band.key, label: band.label, order: TABLE_BANDS.indexOf(band),
+          net: 0, minutes: 0, tableMinutes: 0, invested: 0, count: 0, wins: 0, sessions: []
+        });
+      }
+      const b = map.get(band.key);
+      b.net          += s.net;
+      b.minutes      += s.minutes;
+      b.tableMinutes += s.minutes * s.tables;
+      b.invested     += s.invested;
+      b.count        += 1;
+      if (s.net > 0) b.wins += 1;
+      b.sessions.push(s);
+    }
+    return Array.from(map.values()).sort((a, b) => a.order - b.order).map((b) => Object.assign(b, {
+      hours:        b.minutes / 60,
+      tableHours:   b.tableMinutes / 60,
+      avgTables:    b.minutes > 0 ? b.tableMinutes / b.minutes : 0,
+      perHour:      b.minutes > 0 ? b.net / (b.minutes / 60) : 0,
+      perTableHour: b.tableMinutes > 0 ? b.net / (b.tableMinutes / 60) : 0,
+      roi:          b.invested > 0 ? (b.net / b.invested) * 100 : 0,
+      winRate:      b.count ? (b.wins / b.count) * 100 : 0,
+      mix:          dominantMix(b.sessions)
+    }));
+  }
+
+  /* ── is the gap real, or was one of them a good month? ────────────────
+     Hourly rates swing far enough that the winning band is usually just the
+     luckier one, and a table of averages hides that completely. So rather
+     than trust the gap, the app resamples what it has — drawing whole
+     sessions back out with replacement, a couple of thousand times — and
+     reports the range the difference lands in 90% of the time. While that
+     range still contains zero the honest answer is "not yet", and the app
+     says so instead of crowning a winner. */
+
+  function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) >>> 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  const hourlyRate = (list) => {
+    let net = 0, minutes = 0;
+    for (const s of list) { net += s.net; minutes += s.minutes; }
+    return minutes > 0 ? net / (minutes / 60) : 0;
+  };
+
+  /** 90% interval for hourlyRate(b) − hourlyRate(a). */
+  function rateDifference(a, b, iterations) {
+    const iters = iterations || 2000;
+    // Seeded from the data itself, so the same sessions always give the same
+    // interval and the figure does not wobble between two renders.
+    const seed = Math.abs(Math.round(hourlyRate(a) * 100 + hourlyRate(b) * 977))
+      + a.length * 7919 + b.length * 104729;
+    const rand = mulberry32(seed);
+
+    const resample = (list) => {
+      let net = 0, minutes = 0;
+      for (let i = 0; i < list.length; i += 1) {
+        const s = list[(rand() * list.length) | 0];
+        net += s.net; minutes += s.minutes;
+      }
+      return minutes > 0 ? net / (minutes / 60) : 0;
+    };
+
+    const draws = new Array(iters);
+    for (let i = 0; i < iters; i += 1) draws[i] = resample(b) - resample(a);
+    draws.sort((x, y) => x - y);
+    const at = (p) => draws[PT.util.clamp(Math.round(p * (iters - 1)), 0, iters - 1)];
+    return { lo: at(0.05), hi: at(0.95) };
+  }
+
+  /** Roughly how much more of both it would take for the interval to clear
+      zero, given it narrows with the square root of the sample. */
+  function hoursToDecide(have, lo, hi, delta) {
+    const half = (hi - lo) / 2;
+    if (!(half > 0) || !(Math.abs(delta) > 0) || !(have > 0)) return null;
+    const extra = have * Math.pow(half / Math.abs(delta), 2) - have;
+    return Number.isFinite(extra) && extra > 0 ? extra : null;
+  }
+
+  /* A band is only rated once there is enough of it to be worth comparing.
+     Below this its average is noise wearing a number. */
+  const BAND_MIN_SESSIONS = 5;
+  const BAND_MIN_HOURS = 5;
+
+  function multitabling(sessions, scope) {
+    const eligible = tableScoped(sessions, scope);
+    const missing = sessions.filter((s) => s.minutes > 0 && !(s.tables > 0)).length;
+    const bands = byTableBand(eligible);
+    const rated = bands.filter((b) => b.count >= BAND_MIN_SESSIONS && b.hours >= BAND_MIN_HOURS);
+
+    let comparison = null;
+    if (rated.length >= 2) {
+      // The fewest tables you play enough of is the thing to beat.
+      const baseline = rated[0];
+      const best = rated.reduce((a, b) => (b.perHour > a.perHour ? b : a));
+      if (best.key !== baseline.key) {
+        const spread = rateDifference(baseline.sessions, best.sessions);
+        const delta = best.perHour - baseline.perHour;
+        const decided = spread.lo > 0 || spread.hi < 0;
+        comparison = {
+          baseline, best, delta, lo: spread.lo, hi: spread.hi, decided,
+          hoursNeeded: decided ? null : hoursToDecide(baseline.hours + best.hours, spread.lo, spread.hi, delta),
+          // Same tables but different stakes is a different experiment.
+          confounded: Boolean(baseline.mix && best.mix && baseline.mix.key !== best.mix.key
+            && baseline.mix.share > 0.5 && best.mix.share > 0.5)
+        };
+      }
+    }
+
+    const minutes = eligible.reduce((sum, s) => sum + s.minutes, 0);
+    const tableMinutes = eligible.reduce((sum, s) => sum + s.minutes * s.tables, 0);
+    return {
+      scope: scope === 'all' ? 'all' : 'cash',
+      bands, rated, comparison,
+      tracked: eligible.length,
+      missing,
+      hours: minutes / 60,
+      tableHours: tableMinutes / 60,
+      avgTables: minutes > 0 ? tableMinutes / minutes : 0
+    };
   }
 
   /* ── months ── */
@@ -532,6 +771,8 @@ PT.stats = (function () {
     RANGES, rangeStart, inRange, rangeLabel,
     summary, cumulative, series, maxDrawdown, streaks,
     groupBy, byRoom, byGame, byStakes, byWeekday, byStartHour, bySessionLength, byMonth,
+    TABLE_BANDS, TABLE_SCOPES, CASH_GAMES, bandFor, tableAverage, parseTableLog,
+    byTableBand, rateDifference, multitabling,
     monthProgress, roomLedger, bankrollSummary, bankrollByRoom, expectedBalance,
     balanceBefore, netFromClosing
   };

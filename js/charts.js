@@ -144,7 +144,10 @@ PT.charts = (function () {
       label: (d) => d.key,
       format: (v) => PT.util.signed(v, { decimals: 0 }),
       // Time is never a win or a loss: colouring it green would read as good.
-      neutral: false
+      neutral: false,
+      // A column the eye should not treat as a finding — too small a sample
+      // behind it. It still gets drawn: hiding it would be worse.
+      dim: null
     }, opts || {});
     if (!items || !items.length) return '<div class="chart-empty">Nothing to show yet</div>';
 
@@ -161,7 +164,8 @@ PT.charts = (function () {
         const pct = (Math.abs(v) / span) * 100;
         const up = v >= 0;
         const text = o.format(v, d);
-        return `<div class="col-item">
+        const dim = o.dim && o.dim(d) ? ' is-dim' : '';
+        return `<div class="col-item${dim}">
           <div class="col-track">
             <div class="col-bar ${o.neutral ? 'is-flat' : up ? 'is-up' : 'is-down'}"
                  style="height:${pct.toFixed(2)}%;${up ? `bottom:${(100 - zeroPct).toFixed(2)}%` : `top:${zeroPct.toFixed(2)}%`}"

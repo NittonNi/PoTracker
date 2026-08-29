@@ -3,7 +3,7 @@ window.PT = window.PT || {};
 
 /* Shown in Settings so "which build am I on?" is answerable without guessing.
    Bump it and the matching VERSION in sw.js when deploying. */
-PT.BUILD = '2026-08-29.1';
+PT.BUILD = '2026-08-29.2';
 
 PT.app = (function () {
   const u = PT.util;
@@ -145,10 +145,15 @@ PT.app = (function () {
       date: u.isoDate(),
       start: '', end: '', minutes: 0,
       room: d.room, game: d.game, stakes: d.stakes, table: d.table,
+      tables: d.tables || 1, tableLog: '',
       buyIn: d.buyIn, rebuys: 0, rebuyTotal: 0, cashOut: 0, closing: null,
       rating: 0, tags: [], notes: ''
     }, existing || {}, seed || {});
     form.tags = (form.tags || []).slice();
+    // A session logged before the app asked has no count, and inventing one
+    // would put it in a band it may never have belonged to. It stays blank
+    // until you say otherwise.
+    form.tables = Number(form.tables) > 0 ? Number(form.tables) : 0;
 
     // Live games have no cashier, so there is no balance to read off a screen.
     const LIVE = ['Casino (live)', 'Home game'];
@@ -213,6 +218,16 @@ PT.app = (function () {
             ${PT.views.TABLES.map((t) => `<option ${t === form.table ? 'selected' : ''}>${u.esc(t)}</option>`).join('')}
           </select>
         </div>
+      </div>
+
+      <div class="field">
+        <span class="field-label">Tables at once <span class="muted" style="font-weight:400">— what makes an hour worth more, or less</span></span>
+        <div class="stepper" style="max-width:210px">
+          <button type="button" id="f-tables-minus">${u.icon('minus', 18)}</button>
+          <span class="stepper-value" id="f-tables">${u.tableCount(form.tables)}</span>
+          <button type="button" id="f-tables-plus">${u.icon('plus', 18)}</button>
+        </div>
+        <div class="field-note" id="f-tables-note"></div>
       </div>
 
       <div class="field">
@@ -334,6 +349,27 @@ PT.app = (function () {
         + (form.rebuys ? ` Rebuys don’t affect it — that money never left ${u.esc(form.room)}.` : '');
     }
 
+    /* Table-hours is the number that makes the two comparable: four tables
+       for an hour is four table-hours of poker, whatever the clock says. */
+    function paintTables() {
+      const node = q('#f-tables-note');
+      const minutes = Number(form.minutes) || 0;
+      if (!(form.tables > 0)) {
+        node.className = 'field-note';
+        node.innerHTML = 'Not recorded — this session stays out of the multi-tabling comparison.';
+        return;
+      }
+      const segments = PT.stats.parseTableLog(form.tableLog);
+      const measured = segments.length
+        ? ` Measured while you played: ${segments.map((s) => `${s.tables} for ${u.hoursLabel(s.minutes)}`).join(', then ')}.`
+        : '';
+      node.className = 'field-note';
+      node.innerHTML = (minutes
+        ? `<b>${u.num((minutes / 60) * form.tables, 1)}</b> table-hours — ${u.hoursLabel(minutes)} across ${u.esc(u.tableCount(form.tables))} table${form.tables === 1 ? '' : 's'}.`
+        : 'Add a duration and this becomes table-hours: the volume you actually played.')
+        + measured;
+    }
+
     function recompute() {
       const { invested, net } = derive();
       const hours = (Number(form.minutes) || 0) / 60;
@@ -345,6 +381,7 @@ PT.app = (function () {
         <div><div class="lr-label">ROI</div><div class="lr-value ${u.tone(roi)}">${invested > 0 ? u.pct(roi) : '—'}</div></div>`;
       paintRoomBalance();
       paintClosingNote();
+      paintTables();
     }
 
     function applyMode() {
@@ -442,6 +479,25 @@ PT.app = (function () {
     q('#f-rebuy-minus').addEventListener('click', () => setRebuys(form.rebuys - 1));
     q('#f-rebuy-plus').addEventListener('click', () => setRebuys(form.rebuys + 1));
 
+    /* Stepping off a measured average lands on a whole number either side of
+       it: from 3.4, down is 3 and up is 4. Below 1 is "not recorded". */
+    const setTables = (next) => {
+      form.tables = Math.max(0, next);
+      // Set by hand, so the timer's log no longer describes it.
+      form.tableLog = '';
+      q('#f-tables').textContent = u.tableCount(form.tables);
+      paintTables();
+      u.haptic();
+    };
+    q('#f-tables-minus').addEventListener('click', () => {
+      const v = Number(form.tables) || 0;
+      setTables(v <= 1 ? 0 : Math.ceil(v) - 1);
+    });
+    q('#f-tables-plus').addEventListener('click', () => {
+      const v = Number(form.tables) || 0;
+      setTables(v < 1 ? 1 : Math.floor(v) + 1);
+    });
+
     const singleChoice = (sel, key, after) => {
       q(sel).addEventListener('click', (e) => {
         const chip = e.target.closest('[data-value]');
@@ -507,6 +563,11 @@ PT.app = (function () {
         form.closing = null;
       }
 
+      // Next session starts from the last count that was good enough to save.
+      if (form.tables > 0) {
+        PT.store.saveSettings({ defaults: Object.assign({}, PT.store.settings.defaults, { tables: form.tables }) });
+      }
+
       saveBtn.disabled = true;
       saveBtn.textContent = 'Saving…';
       try {
@@ -561,7 +622,9 @@ PT.app = (function () {
       <div class="card" style="box-shadow:none;background:var(--bg-elev);padding:4px 16px">
         ${kv('Game', u.esc(session.game) + (session.table ? ' · ' + u.esc(session.table) : ''))}
         ${kv('Time played', u.hoursLabel(session.minutes) + (session.end ? ` (${u.esc(session.start)}–${u.esc(session.end)})` : ''))}
+        ${session.tables > 0 ? kv('Tables', `${u.esc(u.tableCount(session.tables))}<span class="muted"> · ${u.num(session.tableHours, 1)} table-hours</span>`) : ''}
         ${kv('Per hour', session.minutes ? u.signed(session.perHour, { decimals: 0 }) : '—', u.tone(session.perHour))}
+        ${session.tableHours > 0 ? kv('Per table-hour', u.signed(session.perTableHour, { decimals: 0 }), u.tone(session.perTableHour)) : ''}
         ${kv('Buy-in', u.money(session.buyIn))}
         ${kv('Rebuys', session.rebuys ? `${session.rebuys} · ${u.money(session.rebuyTotal)}` : 'none')}
         ${kv('Total invested', u.money(session.invested))}
@@ -902,7 +965,7 @@ PT.app = (function () {
   /* ══════════════════ timer ══════════════════ */
   function startTimerSheet() {
     const d = PT.store.settings.defaults;
-    const draft = { room: d.room, game: d.game, stakes: d.stakes, buyIn: d.buyIn };
+    const draft = { room: d.room, game: d.game, stakes: d.stakes, buyIn: d.buyIn, tables: d.tables || 1 };
     const symbol = PT.store.settings.currency;
 
     openSheet({
@@ -933,7 +996,15 @@ PT.app = (function () {
             </div>
           </label>
         </div>
-        <p class="muted small">The clock keeps running if you close the app. Rebuys can be added while you play.</p>`,
+        <div class="field">
+          <span class="field-label">Tables to start with</span>
+          <div class="stepper" style="max-width:210px">
+            <button type="button" id="t-tables-minus">${u.icon('minus', 18)}</button>
+            <span class="stepper-value" id="t-tables">${u.tableCount(draft.tables)}</span>
+            <button type="button" id="t-tables-plus">${u.icon('plus', 18)}</button>
+          </div>
+        </div>
+        <p class="muted small">The clock keeps running if you close the app. Rebuys and tables can both be changed while you play — every change is stamped, so the session ends up with the average you really played.</p>`,
       footer: `<button class="btn btn-primary btn-block btn-lg" id="t-start">${u.icon('play', 17)} Start playing</button>`,
       onMount: (api) => {
         const paintBalance = () => {
@@ -963,6 +1034,14 @@ PT.app = (function () {
         pick('#t-game', 'game');
         api.root.querySelector('#t-stakes').addEventListener('input', (e) => { draft.stakes = e.target.value; });
         api.root.querySelector('#t-buyin').addEventListener('input', (e) => { draft.buyIn = Number(e.target.value) || 0; paintBalance(); });
+
+        const setDraftTables = (n) => {
+          draft.tables = PT.util.clamp(Math.round(n), 1, 24);
+          api.root.querySelector('#t-tables').textContent = u.tableCount(draft.tables);
+          u.haptic();
+        };
+        api.root.querySelector('#t-tables-minus').addEventListener('click', () => setDraftTables(draft.tables - 1));
+        api.root.querySelector('#t-tables-plus').addEventListener('click', () => setDraftTables(draft.tables + 1));
         paintBalance();
 
         api.foot.querySelector('#t-start').addEventListener('click', () => {
@@ -990,6 +1069,15 @@ PT.app = (function () {
           <div class="timer-hero-meta">${u.esc(timer.room)}${timer.stakes ? ' · ' + u.esc(timer.stakes) : ''} · started ${u.esc(u.hhmm(new Date(timer.startedAt)))}</div>
         </div>
         <div class="field" style="margin-top:22px">
+          <span class="field-label">Tables open right now</span>
+          <div class="stepper">
+            <button type="button" id="rt-tables-minus">${u.icon('minus', 18)}</button>
+            <span class="stepper-value" id="rt-tables">${u.tableCount(timer.tables || 1)}</span>
+            <button type="button" id="rt-tables-plus">${u.icon('plus', 18)}</button>
+          </div>
+          <div class="tile-note" id="rt-tables-note" style="margin-top:8px"></div>
+        </div>
+        <div class="field">
           <span class="field-label">Rebuys so far</span>
           <div class="stepper">
             <button type="button" id="rt-minus">${u.icon('minus', 18)}</button>
@@ -1008,12 +1096,21 @@ PT.app = (function () {
         }, 1000);
 
         const investedNode = sheet.root.querySelector('#rt-invested');
+        const tablesNode = sheet.root.querySelector('#rt-tables-note');
         const paint = () => {
           const t = PT.store.state.timer;
           if (!t) return;
           sheet.root.querySelector('#rt-rebuys').textContent = t.rebuys || 0;
           const invested = (Number(t.buyIn) || 0) + (Number(t.rebuyTotal) || 0);
           investedNode.textContent = `${u.money(invested)} on the table`;
+
+          sheet.root.querySelector('#rt-tables').textContent = u.tableCount(t.tables || 1);
+          // The average so far, so changing the count mid-session is visibly
+          // accounted for rather than quietly overwritten.
+          const soFar = PT.stats.tableAverage(t.tableMarks, Date.now());
+          tablesNode.textContent = soFar.log
+            ? `${u.tableCount(soFar.tables)} on average so far`
+            : 'unchanged since you sat down';
         };
         const bump = (delta) => {
           const t = PT.store.state.timer;
@@ -1025,6 +1122,16 @@ PT.app = (function () {
         };
         sheet.root.querySelector('#rt-minus').addEventListener('click', () => bump(-1));
         sheet.root.querySelector('#rt-plus').addEventListener('click', () => bump(1));
+
+        const bumpTables = (delta) => {
+          const t = PT.store.state.timer;
+          if (!t) return;
+          PT.store.setTimerTables(PT.util.clamp((Number(t.tables) || 1) + delta, 1, 24));
+          paint();
+          u.haptic();
+        };
+        sheet.root.querySelector('#rt-tables-minus').addEventListener('click', () => bumpTables(-1));
+        sheet.root.querySelector('#rt-tables-plus').addEventListener('click', () => bumpTables(1));
         paint();
 
         sheet.foot.querySelector('#rt-finish').addEventListener('click', () => {
@@ -1049,6 +1156,7 @@ PT.app = (function () {
     const start = new Date(timer.startedAt);
     const end = new Date();
     const minutes = Math.max(1, Math.round((end - start) / 60000));
+    const tables = PT.stats.tableAverage(timer.tableMarks, end.getTime());
     PT.store.stopTimer();
     refreshTimerBar();
     render();
@@ -1063,7 +1171,9 @@ PT.app = (function () {
       stakes: timer.stakes,
       buyIn: timer.buyIn,
       rebuys: timer.rebuys || 0,
-      rebuyTotal: timer.rebuyTotal || 0
+      rebuyTotal: timer.rebuyTotal || 0,
+      tables: tables.tables,
+      tableLog: tables.log
     });
   }
 
@@ -1143,15 +1253,19 @@ PT.app = (function () {
   function exportCsv() {
     const rows = PT.store.sortedSessions();
     const header = ['Date', 'Start', 'End', 'Minutes', 'Hours', 'Room', 'Game', 'Stakes', 'Table',
-      'Buy-in', 'Rebuys', 'Rebuy total', 'Invested', 'Cash out', 'Net', 'Per hour', 'ROI %', 'Rating', 'Tags', 'Notes'];
+      'Tables', 'Table hours', 'Table log',
+      'Buy-in', 'Rebuys', 'Rebuy total', 'Invested', 'Cash out', 'Net', 'Per hour', 'Per table hour',
+      'ROI %', 'Rating', 'Tags', 'Notes'];
     const cell = (v) => {
       const s = String(v === null || v === undefined ? '' : v);
       return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     const body = rows.map((s) => [
       s.date, s.start, s.end, s.minutes, s.hours.toFixed(2), s.room, s.game, s.stakes, s.table,
+      s.tables || '', s.tableHours ? s.tableHours.toFixed(2) : '', s.tableLog,
       s.buyIn, s.rebuys, s.rebuyTotal, s.invested, s.cashOut, s.net,
-      s.minutes ? s.perHour.toFixed(2) : '', s.invested ? s.roi.toFixed(1) : '',
+      s.minutes ? s.perHour.toFixed(2) : '',
+      s.tableHours ? s.perTableHour.toFixed(2) : '', s.invested ? s.roi.toFixed(1) : '',
       s.rating, (s.tags || []).join(' | '), s.notes
     ].map(cell).join(','));
     u.download(`potracker-sessions-${u.isoDate()}.csv`, [header.join(','), ...body].join('\r\n'), 'text/csv;charset=utf-8');
@@ -1274,7 +1388,7 @@ PT.app = (function () {
     u.$('#outbox-bar-retry').addEventListener('click', () => sync());
 
     // Segmented controls are re-created on every render, so delegate.
-    const SEGMENTS = { '#range-seg': 'range', '#weekday-seg': 'weekdayMetric' };
+    const SEGMENTS = { '#range-seg': 'range', '#weekday-seg': 'weekdayMetric', '#tables-seg': 'tableScope' };
     document.addEventListener('click', (e) => {
       for (const [selector, setting] of Object.entries(SEGMENTS)) {
         const btn = e.target.closest(`${selector} [data-value]`);

@@ -19,10 +19,11 @@ PT.store = (function () {
     theme: 'system',
     range: '30d',
     weekdayMetric: 'net',
+    tableScope: 'cash',
     entryMode: 'closing',
     autoRebuyTotal: true,
     confirmDelete: true,
-    defaults: { room: 'Winamax', game: 'Cash NLHE', stakes: '', table: '6-max', buyIn: 20 }
+    defaults: { room: 'Winamax', game: 'Cash NLHE', stakes: '', table: '6-max', tables: 1, buyIn: 20 }
   };
 
   function read(key, fallback) {
@@ -108,6 +109,11 @@ PT.store = (function () {
     const invested   = buyIn + rebuyTotal;
     const net        = cashOut - invested;
     const hours      = minutes / 60;
+    // How many tables at once. Blank on every session logged before the app
+    // asked, and 0 is not 1: a session with no count stays out of the
+    // multi-tabling comparison rather than quietly claiming it was one table.
+    const tables     = Number(f['Tables']) || 0;
+    const tableHours = tables > 0 ? hours * tables : 0;
 
     return {
       id: record.id,
@@ -123,6 +129,10 @@ PT.store = (function () {
       game:    f['Game'] || 'Other',
       stakes:  f['Stakes'] || '',
       table:   f['Table'] || '',
+      tables,
+      tableHours,
+      // The timer's record of how the count changed, e.g. "4x37|3x21".
+      tableLog: f['Table Log'] || '',
       buyIn, rebuyTotal, cashOut, invested, net, hours,
       // Only set when the session was logged by closing balance rather than
       // by cash-out. Kept for the audit trail; Cash Out stays the source of truth.
@@ -133,6 +143,7 @@ PT.store = (function () {
       tags:    f['Tags'] || [],
       notes:   f['Notes'] || '',
       perHour: minutes > 0 ? net / hours : 0,
+      perTableHour: tableHours > 0 ? net / tableHours : 0,
       roi:     invested > 0 ? (net / invested) * 100 : 0
     };
   }
@@ -187,6 +198,11 @@ PT.store = (function () {
       'Notes':       s.notes || ''
     };
     if (s.table) fields['Table'] = s.table;
+    // Written every time, null included: a session edited back to "no idea how
+    // many tables" must not keep a count from an earlier attempt, or it would
+    // sit in a bucket it no longer belongs to.
+    fields['Tables'] = Number(s.tables) > 0 ? Math.round(Number(s.tables) * 10) / 10 : null;
+    fields['Table Log'] = s.tableLog || '';
     // Always written, null included: a session switched back to "cashed out"
     // must not keep the balance typed on an earlier attempt, or every later
     // session would measure itself against a figure that no longer applies.
@@ -281,7 +297,10 @@ PT.store = (function () {
 
   /* ── running timer ── */
   function startTimer(seed) {
-    state.timer = Object.assign({ startedAt: Date.now(), rebuys: 0, rebuyTotal: 0 }, seed || {});
+    state.timer = Object.assign({ startedAt: Date.now(), rebuys: 0, rebuyTotal: 0, tables: 1 }, seed || {});
+    // Every change of table count is stamped as it happens, so the average the
+    // session ends up with is measured rather than remembered afterwards.
+    state.timer.tableMarks = [{ at: state.timer.startedAt, tables: Math.max(1, Number(state.timer.tables) || 1) }];
     write(KEY.timer, state.timer);
     emit('timer', state.timer);
   }
@@ -290,6 +309,18 @@ PT.store = (function () {
     state.timer = Object.assign({}, state.timer, patch);
     write(KEY.timer, state.timer);
     emit('timer', state.timer);
+  }
+  /** Change how many tables are open right now, stamping when it happened. */
+  function setTimerTables(count) {
+    if (!state.timer) return;
+    const tables = Math.max(1, Math.round(Number(count) || 1));
+    if (tables === Number(state.timer.tables)) return;
+    const marks = (state.timer.tableMarks || []).slice();
+    const now = Date.now();
+    // Two taps in the same second are one decision, not a segment.
+    if (marks.length && now - marks[marks.length - 1].at < 1000) marks[marks.length - 1] = { at: marks[marks.length - 1].at, tables };
+    else marks.push({ at: now, tables });
+    updateTimer({ tables, tableMarks: marks });
   }
   function stopTimer() {
     const finished = state.timer;
@@ -328,7 +359,7 @@ PT.store = (function () {
     toSessionFields, toBankrollFields, toGoalFields, buildLabel, round2,
     setSessions, setBankroll, setGoals, markSynced, sortedSessions,
     upsertSession, removeSession, upsertBankroll, removeBankroll, upsertGoal,
-    startTimer, updateTimer, stopTimer, timerSeconds,
+    startTimer, updateTimer, stopTimer, timerSeconds, setTimerTables,
     queue, setOutbox, clearCache
   };
 })();

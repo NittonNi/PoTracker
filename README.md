@@ -15,6 +15,9 @@ Airtable is the backend, a static page is the frontend, and there is no server i
 - One record per session: date, start/end time, room, game, stakes, buy-in, rebuys, cash-out
 - A **live timer** — start it when you sit down, finish it when you get up, and the session form
   arrives pre-filled. The clock survives closing the app.
+- **How many tables** you had open, moved up and down while you play. Every change is stamped, so
+  a session that went four tables → three → two is filed under the average you actually played
+  rather than the one you remember
 - Rebuy stepper that keeps the rebuy total in sync with your buy-in
 - Play rating (1–5 stars), tags (tilt, tired, focused, heater…) and free-text notes
 - Net, per-hour and ROI update live as you type
@@ -27,6 +30,13 @@ each with its own colour, and each broken out separately in the stats.
 - Cumulative profit curve you can scrub with your finger to see any point in time
 - Per-hour win rate, ROI, win rate, average session, average result
 - Breakdowns by room, game, stakes, day of week, time of day and session length
+- **Multi-tabling**: sessions banded by tables open — one, two, three to four, five to six, seven
+  and up — with €/hour and €/table-hour side by side. €/hour is what decides it; €/table-hour
+  always falls as you add tables and is there to show what the volume costs.
+  The gap between two bands is only called a result once it survives being resampled: the app
+  redraws your own sessions with replacement a couple of thousand times and reports the range the
+  difference lands in nine times out of ten. While that range contains zero it says so, and
+  estimates how many more hours would settle it
 - Biggest win, biggest loss, max drawdown, current and best streaks
 - Month-by-month columns
 - Monthly goals as Apple-style **activity rings** (profit / hours / sessions)
@@ -66,6 +76,8 @@ The base needs three tables. Field names must match exactly.
 | Game | Single select |
 | Stakes | Single line text |
 | Table | Single select |
+| Tables | Number, 1 decimal |
+| Table Log | Single line text (`4x37\|3x21`) |
 | Buy-in / Rebuy Total / Cash Out | Currency |
 | Rebuys | Number, 0 decimals |
 | Rating | Rating, max 5 |
@@ -73,7 +85,11 @@ The base needs three tables. Field names must match exactly.
 | Notes | Long text |
 
 Optional formula fields for viewing inside Airtable (the app computes these itself):
-`Invested`, `Net`, `Hours`, `Per Hour`, `ROI %`, `Result`.
+`Invested`, `Net`, `Hours`, `Per Hour`, `ROI %`, `Result`, `Table Hours`, `Per Table Hour`.
+
+`Tables` is the time-weighted average number of tables open, which is why it takes a decimal.
+Leave it blank and the session is simply left out of the multi-tabling comparison — blank means
+"not recorded", never "one table".
 
 **Bankroll** — `Entry`, `Date`, `Type` (Deposit / Withdrawal / Bonus / Rakeback / Transfer /
 Adjustment), `Room`, `Amount` (currency), `Notes`.
@@ -145,10 +161,11 @@ its caches. It stays hidden unless six seconds pass with no screen shown.
 node test/money.js
 ```
 
-No dependencies, no runner. It covers the one thing the app can get wrong without anyone
-noticing: the result of a session, which is derived from the balance you close with rather
-than typed. Run it after touching `js/stats.js`, `js/store.js` or the ordering in
-`js/util.js`.
+No dependencies, no runner. It covers the two things the app can get wrong without anyone
+noticing: the result of a session, which is derived from the balance you close with rather than
+typed, and the multi-tabling comparison — the table average the timer measures, which bands a
+session falls into, and whether a difference between two bands is called a result or called
+noise. Run it after touching `js/stats.js`, `js/store.js` or the ordering in `js/util.js`.
 
 ## Project layout
 

@@ -85,6 +85,13 @@ PT.util = (function () {
 
   const pct = (value, decimals) => `${num(value, decimals === undefined ? 0 : decimals)}%`;
 
+  /** A table count: "4", or "3.4" when the session moved between counts. */
+  function tableCount(value) {
+    const n = Number(value) || 0;
+    if (n <= 0) return '—';
+    return Number.isInteger(n) ? String(n) : n.toFixed(1);
+  }
+
   /** '+', '−' or '' — used to pick a CSS class. */
   const tone = (n) => (n > 0 ? 'pos' : n < 0 ? 'neg' : 'neutral');
 
@@ -240,7 +247,7 @@ PT.util = (function () {
 
   return {
     $, $$, el, esc, icon,
-    money, signed, num, pct, tone,
+    money, signed, num, pct, tone, tableCount,
     hoursLabel, clock, isoDate, hhmm, parseDate, dateLabel, monthKey, monthLabel, chrono,
     MONTHS, MONTHS_SHORT, DAYS, DAYS_SHORT,
     initials, roomColor, gameColor, ROOM_COLORS, GAME_COLORS,

@@ -457,6 +457,41 @@ body.has-sheet .fab { opacity: 0; transform: scale(.8); pointer-events: none; }
 .ring-legend-label { font-size: 12px; color: var(--label-2); font-weight: 550; }
 .ring-legend-value { font-family: var(--num); font-size: 15px; font-weight: 650; letter-spacing: -.3px; margin-left: auto; font-variant-numeric: tabular-nums; }
 
+.col-item.is-dim { opacity: .34; }
+
+/* ─────────── multi-tabling ─────────── */
+.mt-verdict-head { font-size: 17px; font-weight: 650; letter-spacing: -.4px; }
+.mt-verdict p { font-size: 13.5px; color: var(--label-2); line-height: 1.55; margin-top: 9px; }
+.mt-verdict p:first-of-type { margin-top: 10px; }
+.mt-verdict b { color: var(--label); font-family: var(--num); font-weight: 650; font-variant-numeric: tabular-nums; }
+.mt-verdict p.is-warning { color: var(--orange); }
+
+/* Five columns will not fit a phone, and shrinking the type to make them is
+   how a table stops being read. It scrolls instead. */
+.mt-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.mt-table { width: 100%; border-collapse: collapse; }
+.mt-table th {
+  font-size: 11px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase;
+  color: var(--label-3); text-align: right; padding: 0 0 9px; white-space: nowrap;
+}
+.mt-table td {
+  padding: 11px 0; text-align: right; white-space: nowrap; vertical-align: top;
+  border-top: .5px solid var(--sep);
+  font-family: var(--num); font-size: 14.5px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.mt-table th:first-child, .mt-table td:first-child { text-align: left; }
+.mt-table th + th, .mt-table td + td { padding-left: 13px; }
+.mt-table td:first-child { font-family: var(--font); letter-spacing: -.2px; }
+.mt-table .mt-sub {
+  display: block; margin-top: 2px;
+  font-family: var(--font); font-size: 11.5px; font-weight: 450; color: var(--label-3);
+  max-width: 190px; overflow: hidden; text-overflow: ellipsis;
+}
+/* Too small to compare: still worth seeing, never worth reading as a result. */
+.mt-table tr.is-thin td { color: var(--label-3); }
+.mt-table tr.is-thin td.pos, .mt-table tr.is-thin td.neg { color: var(--label-3); }
+.mt-table .badge { vertical-align: 1px; }
+
 /* ─────────── charts ─────────── */
 /* The curve is drawn at the container's real pixel width, so a dot stays a
    dot. Vertical drags still scroll the page; horizontal ones scrub. */

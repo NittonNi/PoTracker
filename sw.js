@@ -2,7 +2,7 @@
    The shell is cached so the app opens instantly and still works on a plane;
    Airtable calls always go to the network (the outbox handles being offline). */
 
-const VERSION = 'potracker-2026-08-29.1';
+const VERSION = 'potracker-2026-08-29.2';
 const SHELL = [
   './',
   'index.html',

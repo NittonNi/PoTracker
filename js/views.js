@@ -35,7 +35,8 @@ PT.views = (function () {
 
   function sessionRow(s) {
     const color = u().roomColor(s.room);
-    const sub = [u().dateLabel(s.date), s.minutes ? u().hoursLabel(s.minutes) : null, s.stakes || s.game]
+    const sub = [u().dateLabel(s.date), s.minutes ? u().hoursLabel(s.minutes) : null,
+      s.tables > 1 ? `${u().tableCount(s.tables)} tables` : null, s.stakes || s.game]
       .filter(Boolean).join(' · ');
     return `<button class="row" data-session="${s.id}">
       <div class="row-avatar" style="background:${color}">${u().esc(u().initials(s.room))}</div>
@@ -266,6 +267,115 @@ PT.views = (function () {
     }
   }
 
+
+  /* ══════════════════════════ MULTI-TABLING ══════════════════════════
+     The section exists to answer one question — does adding tables make you
+     more money per hour — and it is deliberately not tied to the range
+     picker above. A fortnight of sessions answers that question with a coin
+     flip; every hour you have ever logged answers it slightly better. */
+
+  function multitablingSection() {
+    const scope = PT.store.settings.tableScope === 'all' ? 'all' : 'cash';
+    const mt = PT.stats.multitabling(PT.store.sortedSessions(), scope);
+    const head = `
+    <div class="section-head">
+      <span class="section-title">Multi-tabling</span>
+      ${segmented('tables-seg', PT.stats.TABLE_SCOPES, mt.scope, true)}
+    </div>`;
+
+    const missingNote = mt.missing
+      ? `<div class="card-note" style="margin-top:12px">${mt.missing} session${mt.missing === 1 ? '' : 's'} without a table count ${mt.missing === 1 ? 'is' : 'are'} left out. Editing one and setting the number brings it in.</div>`
+      : '';
+
+    if (!mt.bands.length) {
+      return `${head}
+      <div class="card">
+        <div class="card-head"><span class="card-title">Does a fourth table pay?</span></div>
+        <p class="muted" style="font-size:13.5px;line-height:1.55">
+          Nothing to compare yet. Start the timer with the number of tables you open and move it
+          while you play — every change is stamped, so the session is filed under the average you
+          really played rather than the one you remember. Once two bands hold five sessions and
+          five hours each, this becomes an answer.
+        </p>
+        ${missingNote}
+      </div>`;
+    }
+
+    const c = mt.comparison;
+    const hours = (n) => `${u().num(n, n >= 10 ? 0 : 1)}h`;
+    /* A win rate of 29 cents an hour is not "€0". Hourly figures elsewhere in
+       the app are whole euros because they are big; these are differences,
+       and a difference that rounds away is the whole point of the section. */
+    const rate = (n) => u().signed(n, { decimals: Math.abs(n) >= 10 ? 0 : 1 });
+
+    let verdict;
+    if (!c) {
+      const thin = mt.bands.filter((b) => !mt.rated.includes(b));
+      verdict = `
+        <div class="mt-verdict-head">Not enough to compare yet</div>
+        <p>A band starts counting at five sessions and five hours, and ${mt.rated.length === 1
+          ? `only <b>${u().esc(mt.rated[0].label)}</b> has got there.`
+          : 'no band has got there.'}
+          ${thin.length ? `Keep going and ${u().esc(thin.map((b) => b.label).join(', '))} will join in.` : ''}</p>`;
+    } else {
+      const needed = c.hoursNeeded === null || c.hoursNeeded === undefined ? null
+        : c.hoursNeeded > 2000 ? 'far' : `about ${u().num(c.hoursNeeded, 0)} more hours`;
+      verdict = `
+        <div class="mt-verdict-head ${c.decided ? (c.delta > 0 ? 'pos' : 'neg') : ''}">
+          ${c.decided ? `${u().esc(c.best.label)} really is better` : 'Too close to call'}
+        </div>
+        <p><b>${u().esc(c.best.label)}</b> pays <b>${rate(c.best.perHour)}</b> an hour against
+           <b>${rate(c.baseline.perHour)}</b> at ${u().esc(c.baseline.label)} — <b>${rate(c.delta)}</b> an hour
+           better, over ${hours(c.best.hours)} of the first and ${hours(c.baseline.hours)} of the second.</p>
+        <p>Dealing those same sessions back out at random, the difference lands between
+           <b>${rate(c.lo)}</b> and <b>${rate(c.hi)}</b> nine times out of ten.
+           ${c.decided
+             ? 'It never crosses zero, so it is bigger than the swings.'
+             : `It crosses zero, so on this evidence the two are not separated${needed === 'far' ? ' — and the gap is small enough that it would take far more hours than you are likely to play' : needed ? `; ${needed} across the two would settle it` : ''}.`}</p>
+        ${c.confounded ? `<p class="is-warning">Two things changed at once: at ${u().esc(c.baseline.label)} you mostly play
+           ${u().esc(c.baseline.mix.key)}, at ${u().esc(c.best.label)} mostly ${u().esc(c.best.mix.key)}. Some of that
+           difference belongs to the game, not to the tables.</p>` : ''}`;
+    }
+
+    const rows = mt.bands.map((b) => {
+      const isBest = c && c.best.key === b.key;
+      return `<tr class="${mt.rated.includes(b) ? '' : 'is-thin'}">
+        <td>${u().esc(b.label)}${isBest ? ' <span class="badge badge-win">best</span>' : ''}
+          ${b.mix ? `<span class="mt-sub">${u().esc(b.mix.key)}${b.mix.share < 0.8 ? ' and others' : ''}</span>` : ''}</td>
+        <td class="${u().tone(b.perHour)}">${rate(b.perHour)}</td>
+        <td class="${u().tone(b.perTableHour)}">${rate(b.perTableHour)}</td>
+        <td>${u().num(b.hours, 1)}<span class="mt-sub">${u().num(b.tableHours, 0)} table-h</span></td>
+        <td>${b.count}<span class="mt-sub">${u().pct(b.winRate)} won</span></td>
+      </tr>`;
+    }).join('');
+
+    return `${head}
+    <div class="card mt-verdict">${verdict}</div>
+
+    <div class="card">
+      <div class="card-head"><span class="card-title">What an hour of your life is worth</span><span class="card-note">by tables open</span></div>
+      ${PT.charts.columns(mt.bands, {
+        value: (d) => d.perHour,
+        format: (v) => `${rate(v)}/h`,
+        dim: (d) => !mt.rated.includes(d)
+      })}
+      <div class="card-note" style="margin-top:10px">This is the number that decides it. Per table-hour below always falls as you add tables — that is the price of the volume, not a reason to play fewer.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span class="card-title">Every band</span><span class="card-note">all time · ${mt.scope === 'cash' ? 'cash games' : 'every game'}</span></div>
+      <div class="mt-scroll"><table class="mt-table">
+        <thead><tr>
+          <th>Tables</th><th>${u().esc(PT.store.settings.currency)}/hour</th>
+          <th>${u().esc(PT.store.settings.currency)}/table-h</th><th>Hours</th><th>Sessions</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      <div class="card-note" style="margin-top:12px">Greyed bands hold fewer than five sessions or five hours, so they are shown but never compared.</div>
+      ${missingNote}
+    </div>`;
+  }
+
   /* ══════════════════════════ STATS ══════════════════════════ */
   function stats() {
     const all = PT.store.sortedSessions();
@@ -347,6 +457,9 @@ PT.views = (function () {
       ${PT.charts.bars(PT.stats.bySessionLength(scoped), { format: (d) => `${u().signed(d.net)} · ${d.count}` })}
     </div>` : ''}
 
+    ${multitablingSection()}
+
+    <div class="section-head"><span class="section-title">Over time</span></div>
     <div class="card">
       <div class="card-head"><span class="card-title">Month by month</span><span class="card-note">all time</span></div>
       ${PT.charts.columns(PT.stats.byMonth(all).slice(-12), { label: (d) => u().MONTHS_SHORT[Number(d.key.slice(5, 7)) - 1] })}
@@ -434,6 +547,10 @@ PT.views = (function () {
           <input id="set-buyin" type="number" inputmode="decimal" step="0.01" value="${u().esc(st.defaults.buyIn)}">
         </label>
       </div>
+      <label class="field">
+        <span class="field-label">Tables <span class="muted" style="font-weight:400">— updated on its own every time you save a session</span></span>
+        <input id="set-tables" type="number" inputmode="numeric" min="1" max="24" step="1" value="${u().esc(st.defaults.tables)}">
+      </label>
     </div>
 
     <div class="section-head"><span class="section-title">Behaviour</span></div>
@@ -487,6 +604,7 @@ PT.views = (function () {
     bind('#set-game', 'change', (e) => saveDefault('game', e.target.value));
     bind('#set-stakes', 'change', (e) => saveDefault('stakes', e.target.value));
     bind('#set-buyin', 'change', (e) => saveDefault('buyIn', Number(e.target.value) || 0));
+    bind('#set-tables', 'change', (e) => saveDefault('tables', PT.util.clamp(Math.round(Number(e.target.value) || 1), 1, 24)));
 
     const themeSeg = root.querySelector('#theme-seg');
     if (themeSeg) {
