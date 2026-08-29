@@ -223,23 +223,41 @@ PT.share = (function () {
     ].join('\n');
   }
 
-  /** Share sheet on mobile, download + clipboard everywhere else. */
-  async function shareCanvas(canvas, filename, message) {
-    const blob = await toBlob(canvas);
-    if (!blob) throw new Error('Could not render the card');
-    const file = new File([blob], filename, { type: 'image/png' });
+  /** A File built without ever yielding.
 
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      try {
-        await navigator.share({ files: [file], text: message });
-        return 'shared';
-      } catch (err) {
-        if (err && err.name === 'AbortError') return 'cancelled';
-      }
-    }
-    PT.util.download(filename, blob);
+      `canvas.toBlob` is asynchronous, and on iOS a single await is enough to
+      spend the user gesture that `navigator.share` insists on: it then rejects
+      with NotAllowedError, and sharing quietly turns into a download the phone
+      does nothing useful with. `toDataURL` is synchronous, so the whole path
+      from canvas to share sheet stays inside the tap. */
+  function toFile(canvas, filename) {
+    const dataUrl = canvas.toDataURL('image/png');
+    const binary = atob(dataUrl.slice(dataUrl.indexOf(',') + 1));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new File([bytes], filename, { type: 'image/png' });
+  }
+
+  async function saveAndCopy(file, filename, message) {
+    PT.util.download(filename, file);
     try { await navigator.clipboard.writeText(message); } catch (_) { /* clipboard may be blocked */ }
     return 'downloaded';
+  }
+
+  /** Share sheet on mobile, download + clipboard everywhere else.
+      Deliberately not `async`: an await before navigator.share is the bug. */
+  function shareCanvas(canvas, filename, message) {
+    const file = toFile(canvas, filename);
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      return navigator.share({ files: [file], text: message })
+        .then(() => 'shared')
+        .catch((err) => {
+          if (err && err.name === 'AbortError') return 'cancelled';
+          return saveAndCopy(file, filename, message); // refused: still deliver the card
+        });
+    }
+    return saveAndCopy(file, filename, message);
   }
 
   return { render, toBlob, shareCanvas, sessionText, summaryText };
