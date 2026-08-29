@@ -3,7 +3,7 @@ window.PT = window.PT || {};
 
 /* Shown in Settings so "which build am I on?" is answerable without guessing.
    Bump it and the matching VERSION in sw.js when deploying. */
-PT.BUILD = '2026-08-13.2';
+PT.BUILD = '2026-08-29.1';
 
 PT.app = (function () {
   const u = PT.util;
@@ -16,6 +16,10 @@ PT.app = (function () {
 
   let current = 'home';
   let timerHandle = null;
+
+  /* Tells the guard in index.html that a screen is genuinely on. Without it the
+     guard cannot tell a slow boot from a dead one. */
+  const booted = () => { if (window.PTBoot) window.PTBoot.ok(); };
 
   /* ══════════════════ rendering ══════════════════ */
   function render(view, opts) {
@@ -1170,6 +1174,7 @@ PT.app = (function () {
     u.$('#app').classList.add('hidden');
     const ob = u.$('#onboarding');
     ob.classList.remove('hidden');
+    booted();
 
     const tokenInput = u.$('#ob-token');
     const baseInput = u.$('#ob-base');
@@ -1328,6 +1333,7 @@ PT.app = (function () {
     }
 
     u.$('#app').classList.remove('hidden');
+    booted();
     render('home');
     refreshTimerBar();
     updateSyncDot();
@@ -1368,4 +1374,11 @@ PT.app = (function () {
   };
 })();
 
-document.addEventListener('DOMContentLoaded', PT.app.init);
+/* A rejected init used to be an unhandled promise and nothing else: no screen
+   was ever unhidden, so the app simply stayed white. */
+document.addEventListener('DOMContentLoaded', () => {
+  Promise.resolve().then(PT.app.init).catch((err) => {
+    console.error('[PoTracker] boot failed', err);
+    if (window.PTBoot) window.PTBoot.fail(err);
+  });
+});

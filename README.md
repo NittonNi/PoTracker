@@ -129,9 +129,15 @@ straight off the filesystem will mostly work but not entirely.
 
 Push to `main` and GitHub Pages serves it. Bump `PT.BUILD` in `js/app.js` and `VERSION` in
 `sw.js` together — the first is what Settings shows you, the second is what retires the old
-offline cache. The service worker fetches with `cache: 'reload'`, so a deploy is not held back
-by the `max-age=600` Pages puts on every file, and the page reloads itself when the new worker
-takes over.
+offline cache and rebuilds the new one. **The version bump is what ships the code**: the worker
+installs the shell with `cache: 'reload'`, so a deploy is not held back by the `max-age=600`
+Pages puts on every file, and the page reloads itself when the new worker takes over. Serving
+requests from that cache rather than re-fetching each one is what keeps a cold start on a phone
+from depending on seventeen round-trips.
+
+If the app ever fails to start, `index.html` carries a self-contained boot screen — inline CSS,
+no modules — offering a reload and a "clean copy" button that unregisters the worker and clears
+its caches. It stays hidden unless six seconds pass with no screen shown.
 
 ## Tests
 

@@ -15,6 +15,83 @@
 <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="assets/icon-180.png">
 <link rel="stylesheet" href="css/app.css">
+
+<!-- Boot guard. Inline on purpose: it has to keep working when css/app.css or
+     one of the modules at the bottom of this file is exactly what failed. -->
+<style>
+  #boot-error { display: none; position: fixed; inset: 0; z-index: 200; place-items: center;
+    padding: 24px; background: #f2f2f7; color: #1c1c1e;
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }
+  #boot-error .boot-inner { max-width: 340px; text-align: center; }
+  #boot-error .boot-mark { font-size: 34px; line-height: 1; margin-bottom: 12px; }
+  #boot-error h1 { font-size: 19px; font-weight: 650; margin: 0 0 8px; }
+  #boot-error p { margin: 0 0 4px; color: #8e8e93; }
+  #boot-detail { margin: 6px 0 22px !important; font-size: 12px; color: #aeaeb2; word-break: break-word; }
+  #boot-error button { font: inherit; font-weight: 600; width: 100%; border: 0;
+    padding: 13px 24px; border-radius: 13px; background: #0a84ff; color: #fff; }
+  #boot-error .boot-ghost { background: none; color: #0a84ff; margin-top: 8px; }
+  #boot-error .boot-note { font-size: 12px; margin: 10px 0 0 !important; }
+  @media (prefers-color-scheme: dark) { #boot-error { background: #000; color: #fff; } }
+</style>
+<script>
+/* Every screen in this page starts hidden, and only a successful boot unhides
+   one. That made any failure at all — a script served as HTML by a service
+   worker whose cache iOS had evicted, a module that threw, a stylesheet that
+   never arrived — show a white page and say nothing at all. This is the floor
+   under that, and it depends on none of the app's own code. */
+window.PTBoot = (function () {
+  var settled = false;
+  var problems = [];
+
+  addEventListener('error', function (e) {
+    var what = e.message || (e.target && (e.target.src || e.target.href)) || 'load error';
+    if (problems.indexOf(what) === -1) problems.push(what);
+  }, true);
+
+  function showing() {
+    return document.querySelector('#app:not(.hidden), #onboarding:not(.hidden)');
+  }
+
+  function fail(detail) {
+    if (settled) return;
+    settled = true;
+    if (detail) problems.push(detail.message || String(detail));
+    var screen = document.getElementById('boot-error');
+    if (!screen) return;
+    document.getElementById('boot-detail').textContent = problems.slice(0, 2).join(' · ');
+    screen.style.display = 'grid';
+  }
+
+  /* Six seconds rather than two: pairing from a QR verifies the token against
+     Airtable before it can show anything, and a phone on bad signal is slow,
+     not broken. The DOM check keeps a slow boot from tripping this at all. */
+  addEventListener('load', function () {
+    setTimeout(function () { if (!showing()) fail(); }, 6000);
+  });
+
+  return {
+    ok: function () { settled = true; },
+    fail: fail,
+    /* The repair that addresses the cause instead of the symptom: throw away
+       the service worker and its caches, and come back on a clean copy.
+       Settings live in localStorage, which this deliberately does not touch. */
+    reset: function () {
+      var jobs = [];
+      if (window.caches) {
+        jobs.push(caches.keys().then(function (keys) {
+          return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+        }));
+      }
+      if (navigator.serviceWorker) {
+        jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
+          return Promise.all(rs.map(function (r) { return r.unregister(); }));
+        }));
+      }
+      Promise.all(jobs).catch(function () {}).then(function () { location.reload(); });
+    }
+  };
+})();
+</script>
 </head>
 <body>
 
@@ -45,6 +122,19 @@
     <symbol id="i-spade" viewBox="0 0 24 24"><path d="M12 3.1c0 0-6.9 6.2-6.9 10.6a3.85 3.85 0 0 0 6.3 2.95c-.3 1.4-1 2.45-2.1 3.25h5.4c-1.1-.8-1.8-1.85-2.1-3.25a3.85 3.85 0 0 0 6.3-2.95C18.9 9.3 12 3.1 12 3.1z" fill="currentColor"/></symbol>
   </defs>
 </svg>
+
+<!-- ─────────── boot failure ─────────── -->
+<div id="boot-error">
+  <div class="boot-inner">
+    <div class="boot-mark">♠</div>
+    <h1>PoTracker could not start</h1>
+    <p>Something the app needs did not load. Your sessions are safe in Airtable.</p>
+    <p id="boot-detail"></p>
+    <button onclick="location.reload()">Try again</button>
+    <button class="boot-ghost" onclick="PTBoot.reset()">Reload a clean copy</button>
+    <p class="boot-note">Clears the offline copy and the service worker. Your token stays.</p>
+  </div>
+</div>
 
 <!-- ─────────── onboarding ─────────── -->
 <div id="onboarding" class="onboarding hidden">
